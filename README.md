@@ -1,6 +1,8 @@
 # pyCSL2HMapGen
-A python-based height map interpolation script for Cities: Skylines 2 Map Editor.
+A python-based height map interpolation script for Cities: Skylines 2 (CSL2) Map Editor.
 
-Will add more description and a how-to guide *soon*.
+Purpose: Generating world height maps and playable area's height maps for CSL2.
 
-*** Work in progress ***
+See the Example section of pyCSL2HMapGen.ipynb for a quick guide!
+
+More detailed description and a how-to guide coming *soon*.
