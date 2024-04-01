@@ -12,7 +12,7 @@ Codes in the script are written from scratch.
 
 
 ## Motivation
-To get the terrain map without having to signing up for mapbox and giving them my credit card number...
+An alternative solution to get the terrain map without having to signing up for mapbox and giving them my credit card number...
 
 
 ## How to: import real-world height map for Cities: Skylines 2 Map Editor (beta)
