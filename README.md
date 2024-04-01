@@ -6,7 +6,7 @@ See the Example section of pyCSL2HMapGen.ipynb for a quick guide!
 
 
 ## Purpose
-Generating world & playable area's height maps for CSL2.
+Generating world & playable area's height maps for CSL2, for the tech-savvy folks who know how to run python scripts.
 
 
 ## Motivation
@@ -39,11 +39,12 @@ Step 2: Download the height map data.
     "The original data used for this product have been supplied by JAXA's ALOS Global Digital Surface Model "ALOS World 3D - 30m" (AW3D30)"
 
 Step 3: Download & set the parameters of the script here.
-    Use git clone or whatever method to download this (there should also be a download button in the up-right corner.)
+    Use git clone or whatever method to download this
+    (there should also be a green `code` button in the up-right corner- click that and you will see the download options.)
     Make sure python & the dependencies are installed.
     Put the map data into the same folder as the script.
-    Now open the jupyter notebook file (pyCSL2HMapGen.ipynb) if you have jupyter notebook,
-    or the python script (pyCSL2HMapGen.py) in a text editor if you have not.
+    Now open the jupyter notebook file (`pyCSL2HMapGen.ipynb`) if you have jupyter notebook,
+    or the python script (`pyCSL2HMapGen.py`) in a text editor if you have not.
     Edit the last few lines under the section "# Example":
     Change the list `tiffilenames` to be a list of the filenames of *your* datafiles. The script will only use the data listed there.
     Change the parameters (from Step 1) for the function call get_CSL_height_maps():
@@ -67,4 +68,4 @@ Step 5: Import them in-game
 
 
 Step 6: Enjoy map-building and celebrate!
-
+    (dn't forget to add the acknowledgement for JAXA if you do publish anything! Would be kind to acknowledge this script too but don't feel pressured.)
