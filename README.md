@@ -5,12 +5,14 @@ A python-based height map interpolation script for Cities: Skylines 2 (CSL2) Map
 See the Example section of pyCSL2HMapGen.ipynb for a quick guide!
 
 
-## Purpose
+## What does it do
 Generating world & playable area's height maps for CSL2, for the tech-savvy folks who know how to run python scripts.
+
+Codes in the script are written from scratch.
 
 
 ## Motivation
-To get the terrain map without using mapbox or supplying anyone information about my credit card number...
+To get the terrain map without having to signing up for mapbox and giving them my credit card number...
 
 
 ## How to: import real-world height map for Cities: Skylines 2 Map Editor (beta)
@@ -21,7 +23,7 @@ Use pip or Anaconda (or whatever) to install the required dependencies:
 before you continue.
 
 Step 1: Find a real world location you want to make your CSL2 map out of.
-    You can use many existing online tools, such as https://heightmap.skydark.pl/beta
+    You can use many existing online tools, such as https://heightmap.skydark.pl/beta or https://terraining.ateliernonta.com/
     Make sure you grab 3 pieces of info:
         longtitude (of the center of the map),
         latitude (same),
@@ -58,14 +60,12 @@ Step 4: Run the script
     (cityname by default is the longtitude and the latitude.)
     These are the heightmaps.
 
-
 Step 5: Import them in-game
     Put those 2 files in your CSL2 saves folder `...\Cities Skylines II\Heightmaps\`
     Boot up the game, enter the editor (beta), in the terrain section of the editor,
     select `import height map` and import the `playable` png file;
     select `import world map`  and import the `worldmap` png file.
     Now you are good to go!
-
 
 Step 6: Enjoy map-building and celebrate!
     (dn't forget to add the acknowledgement for JAXA if you do publish anything! Would be kind to acknowledge this script too but don't feel pressured.)
