@@ -25,7 +25,7 @@ import png
 gdal.UseExceptions()
 
 
-# In[3]:
+# In[74]:
 
 
 def get_interpolator_AW3D30(
@@ -39,7 +39,7 @@ def get_interpolator_AW3D30(
     if filename not in opened_data.keys():
         # open file
         if verbose:
-            print(f"Reading data from file {filename}...")
+            print(f"Reading data from file {filename}...", end='')
         file = gdal.Open(filename)
         trans_pars = file.GetGeoTransform()
         elev_xy = file.GetRasterBand(1).ReadAsArray()
@@ -49,7 +49,7 @@ def get_interpolator_AW3D30(
             raise NotImplementedError("Input tiff has a twisted grid. Interpolation here has not been implemented. Add code plz!")
         #long_xy = np.fromfunction((lambda y, x: trans_pars[0] + x*trans_pars[1] + y*trans_pars[2]), elev_xy.shape)
         #lati_xy = np.fromfunction((lambda y, x: trans_pars[3] + x*trans_pars[4] + y*trans_pars[5]), elev_xy.shape)
-        long_ax = np.fromfunction((lambda x: trans_pars[0] + x*trans_pars[1]), (elev_xy.shape[1],))
+        long_ax = np.fromfunction((lambda x: trans_pars[0] + x*trans_pars[1]), (elev_xy.shape[1],)) % 360
         lati_ax = np.fromfunction((lambda y: trans_pars[3] + y*trans_pars[5]), (elev_xy.shape[0],))
         
         interp  = RegularGridInterpolator((lati_ax, long_ax), elev_xy, method=method, bounds_error=False, fill_value=-1)
@@ -61,7 +61,7 @@ def get_interpolator_AW3D30(
     return interp
 
 
-# In[4]:
+# In[18]:
 
 
 def get_grid_coord(
@@ -71,7 +71,7 @@ def get_grid_coord(
     center_long: float,
     NS_width_km: float,
     EW_width_km: float,
-) -> float:
+) -> np.ndarray:
     """The function for np.fromfunction() to get the coordinates for our map's grid.
     """
     #  earth radius
@@ -97,7 +97,7 @@ def get_grid_coord(
     return ans
 
 
-# In[5]:
+# In[84]:
 
 
 def interpolate_height_map_AW3D30(
@@ -146,12 +146,29 @@ def interpolate_height_map_AW3D30(
         (lambda ilatis, ilongs, itypes: get_grid_coord(ilatis, ilongs, lati, long, NS_width_km, EW_width_km)),
         (nlati, nlong, 2),
     )
+
+    # trace how much of the map has been covered
+    nhit_total = 0
     
     for filename in tiffilenames:
         # update ans with tiles data from each tif file
         interp = get_interpolator_AW3D30(filename, method=interp_method, opened_data=opened_data, verbose=verbose)
         ans0 = interp(coord, method=interp_method)
-        ans = np.where(ans0 >= 0, ans0, ans)
+        nhit = np.count_nonzero(ans0+1)
+        nhit_total += nhit
+        if nhit:
+            if verbose: print(f"Hit ({nhit/ans.size*100: 6.2f}%).")
+            ans = np.where(ans0 >= 0, ans0, ans)
+        else:
+            if verbose: print("Missed.")
+
+    if verbose:
+        print(f"Total {nhit_total/ans.size*100: 6.2f}% of the map has been covered.")
+        if nhit_total/ans.size < 0.9973: # 99.73% is 3 sigma because why not
+            print(
+                f"*** Warning: a large portion of the map ({(1.-nhit_total/ans.size)*100: 6.2f})",
+                "hasn't been covered by interpolation. Please consider download and add more map tiles data."
+            )
 
     # fixing the gaps between tiles (where ans==-1) by filling them the closest neighbour values
     ind = distance_transform_edt(ans < 0, return_distances=False, return_indices=True)
@@ -160,7 +177,7 @@ def interpolate_height_map_AW3D30(
     return ans, coord
 
 
-# In[6]:
+# In[85]:
 
 
 def get_CSL_height_maps(
@@ -168,39 +185,64 @@ def get_CSL_height_maps(
     lati        : float,
     tiffilenames: tuple[str],
     cityname    : str   = None,
-    scale       : float = 1.0,
+    scales      : float | tuple[float, float] = 1.0,
     height_scale: float = 4096.,
     min_height  : float = 64.,
     interp_method: str  = 'linear',
     opened_data : dict  = {},
+    Rearth_km   : float = 6378.1,
     verbose     : bool  = True,
 ):
-    """Wrapper function to extract height map from data and save them to disk."""
+    """Wrapper function to extract height map from data and save them to disk.
+
+    scales: float | tuple[float, float]
+        if tuple, it should be in format of (width scale, height scale).
+
+    Rearth_km: float
+        Earth radius in km.
+        Do NOT change this unless you are generating a map of Mars or something.
+        
+    """
 
     WORLDMAP_WIDTH_km = 57.344
     PLAYABLE_WIDTH_km = 14.336
 
     long = long % 360
+    try:
+        scale_w = scales[0]
+        scale_h = scales[1]
+    except TypeError:
+        scale_w = scales
+        scale_h = scales
+        
 
     # step 1: get world map
-    ans, _ = interpolate_height_map_AW3D30(
+    ans, coord = interpolate_height_map_AW3D30(
         long=long, lati=lati, tiffilenames=tiffilenames,
-        map_width_km=WORLDMAP_WIDTH_km*scale, interp_method=interp_method,
-        nlati=4096, nlong=4096, opened_data=opened_data, verbose=verbose)
-    ans = ans * scale + min_height
+        map_width_km=WORLDMAP_WIDTH_km*scale_w, interp_method=interp_method,
+        nlati=4096, nlong=4096, opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
+    ans = ans * scale_h + min_height
     
     # sanity checks
-    if np.count_nonzero(ans < 0):
+    if verbose and np.count_nonzero(ans < 0):
         print("*   Warning: artifacts in worldmap image detected.")
     if ans.max() >= height_scale:
-        print(f"*** Warning: maximum height = {ans.max()} is higher than height_scale.")
+        if verbose: print(f"*** Warning: maximum height = {ans.max()} is higher than height_scale.")
         height_scale = np.ceil(ans.max())+1
-        print(f"\tSetting new height scale to be {height_scale}")
+        if verbose: print(f"\tSetting new height scale to be {height_scale}")
+    elif verbose:
+        print(f"\tmaximum height = {ans.max()}")
+    if verbose:
+        print(
+            f"\tCenter point at longtitude {long}, latitude {lati}\n",
+            f"\tWorld Map longitude range from {np.min(coord[:, :, 1]): 10.6} to {np.max(coord[:, :, 1]): 10.6}\n",
+            f"\t          latitude  range from {np.min(coord[:, :, 0]):+10.6} to {np.max(coord[:, :, 0]):+10.6}\n",
+        )
     
     img_arr = (ans / height_scale * 2**16).astype(np.uint16)
 
     if cityname is None:
-        cityname = f"{long:.3f}_{lati:+.3f}"
+        cityname = f"{long:07.3f}_{lati:+07.3f}"
         
     outfilename = f"worldmap_{cityname}.png"
     with open(outfilename, 'wb') as f:
@@ -213,9 +255,9 @@ def get_CSL_height_maps(
     # step 2: get the height map
     ans, _ = interpolate_height_map_AW3D30(
         long=long, lati=lati, tiffilenames=tiffilenames,
-        map_width_km=PLAYABLE_WIDTH_km*scale, interp_method=interp_method,
-        nlati=4096, nlong=4096, opened_data=opened_data, verbose=verbose)
-    ans = ans * scale + min_height
+        map_width_km=PLAYABLE_WIDTH_km*scale_w, interp_method=interp_method,
+        nlati=4096, nlong=4096, opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
+    ans = ans * scale_h + min_height
     
     # sanity checks
     if np.count_nonzero(ans < 0):
@@ -232,25 +274,31 @@ def get_CSL_height_maps(
         if verbose: print(f"Saving to {outfilename}")
         writer.write(f, img_arr)
 
-    return img_arr_orig
+    return img_arr_orig, coord
 
 
 # # Example
 
-# In[7]:
+# In[86]:
 
 
 # example
 
-long=168.77
-lati=-44.05
+# download the relevant data from https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d_e.htm
+#    (or some other sources, I don't care)
+#    If you download from JAXA, you will need to register an account and read their terms of service
+#    after downloading, put them in the same folder as the script and supply the filenames here
+#    they will be used to interpolate the elevations in the respective areas of the image.
+#    if you see a patch of the image is constant at minimal height-1,
+#    then you haven't downloaded & added the data of that patch. Probably.
 tiffilenames = [
-    'ALPSMLC30_S044E168_DSM.tif',
-    'ALPSMLC30_S045E168_DSM.tif',
-    'ALPSMLC30_S044E169_DSM.tif',
-    'ALPSMLC30_S045E169_DSM.tif',
+    'raw/ALPSMLC30_N063W018_DSM.tif',
+    'raw/ALPSMLC30_N063W019_DSM.tif',
 ]
 
-img_arr = get_CSL_height_maps(
-    long=long, lati=lati, tiffilenames=tiffilenames, scale=1.5)
+img_arr, coord = get_CSL_height_maps(
+    long=-18.350, lati=+63.580, tiffilenames=tiffilenames, scales=(1.0, 1.0))
+# e.g. scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
+#    (i.e. mapping real world 1.5*57.344km to game 57.344km)
+#    while stretching the heights to 1:1.2
 
