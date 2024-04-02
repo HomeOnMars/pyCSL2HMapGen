@@ -19,18 +19,17 @@ Author: HomeOnMars
 import numpy as np
 from numpy import pi
 from scipy.interpolate import RegularGridInterpolator
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, gaussian_filter
 from osgeo import gdal
 import png
 gdal.UseExceptions()
 
 
-# In[74]:
+# In[3]:
 
 
-def get_interpolator_AW3D30(
+def get_interpolator_tiff(
     filename    : str,
-    method      : str  = 'linear',
     opened_data : dict = {},
     verbose     : bool = True,
 ) -> RegularGridInterpolator:
@@ -39,7 +38,7 @@ def get_interpolator_AW3D30(
     if filename not in opened_data.keys():
         # open file
         if verbose:
-            print(f"Reading data from file {filename}...", end='')
+            print(f"Reading data from file {filename}...", end=' ')
         file = gdal.Open(filename)
         trans_pars = file.GetGeoTransform()
         elev_xy = file.GetRasterBand(1).ReadAsArray()
@@ -52,21 +51,25 @@ def get_interpolator_AW3D30(
         long_ax = np.fromfunction((lambda x: trans_pars[0] + x*trans_pars[1]), (elev_xy.shape[1],)) % 360
         lati_ax = np.fromfunction((lambda y: trans_pars[3] + y*trans_pars[5]), (elev_xy.shape[0],))
         
-        interp  = RegularGridInterpolator((lati_ax, long_ax), elev_xy, method=method, bounds_error=False, fill_value=-1)
+        interp  = RegularGridInterpolator((lati_ax, long_ax), elev_xy, bounds_error=False, fill_value=-1)
         
         # save data
         opened_data[filename] = interp
+    else:
+        if verbose:
+            print(f"Using data from file {filename}...", end=' ')
     interp = opened_data[filename]
 
     return interp
 
 
-# In[18]:
+# In[4]:
 
 
 def get_grid_coord(
     ilatis: np.ndarray,
     ilongs: np.ndarray,
+    angle_rad  : float,
     center_lati: float,
     center_long: float,
     NS_width_km: float,
@@ -80,30 +83,42 @@ def get_grid_coord(
     ans = np.zeros(ilatis.shape)
     nlati, nlong, _ = ilatis.shape
 
+    # set ilatis to be 0 at the center (n for new)
+    #    (ilatis inverted because images work in weird ways)
+    ilatis_n =  nlati / 2. - 0.5 - ilatis
+    ilongs_n = -nlong / 2. + 0.5 + ilongs
+
+    # rotation (r for rotated)
+    ilatis_r = np.sin(angle_rad) * ilongs_n + np.cos(angle_rad) * ilatis_n
+    ilongs_r = np.cos(angle_rad) * ilongs_n - np.sin(angle_rad) * ilatis_n
+
     # latitude
     NS_width_deg = NS_width_km / Rearth_km / pi * 180
     dlati = NS_width_deg / nlati
-    #lati  = center_lati + dlati * (-nlati / 2. + 0.5 + ilatis)
+    #lati  = center_lati + dlati * (-nlati / 2. + 0.5 + ilatis_r)
     #  (inverted because images work in weird ways)
-    lati  = center_lati + dlati * (nlati / 2. - 0.5 - ilatis)
-    ans[:, :, 0] = lati[:, :, 0]
+    lati  = center_lati + dlati * ilatis_r
     
     # longtitude
     EW_width_deg = EW_width_km / (Rearth_km * np.cos(lati/180.*pi)) / pi * 180
     dlong = EW_width_deg / nlong
-    long  = center_long + dlong * (-nlong / 2. + 0.5 + ilongs)
+    long  = center_long + dlong * ilongs_r
+
+    # write answer
+    ans[:, :, 0] = lati[:, :, 0]
     ans[:, :, 1] = long[:, :, 1]
     
     return ans
 
 
-# In[84]:
+# In[5]:
 
 
-def interpolate_height_map_AW3D30(
+def interpolate_height_map_tiff(
     long        : float,
     lati        : float,
     tiffilenames: tuple[str],
+    angle_deg   : float = 0.,
     map_width_km: float = 57.344,    # 57.344 or 14.336 for CS2
     EW_width_km : float = None,
     NS_width_km : float = None,
@@ -118,6 +133,9 @@ def interpolate_height_map_AW3D30(
 
     long, lat: float
         in Degrees.
+
+    angle_deg: float
+        how many degrees we are rotating the map counter-clockwise.
 
     map_width_km: float
         width & length of the map.
@@ -134,16 +152,17 @@ def interpolate_height_map_AW3D30(
     if map_width_km is not None:
         EW_width_km = map_width_km
         NS_width_km = map_width_km
+    angle_rad = angle_deg / 180. * pi
 
     # the answer we are looking for! i.e. elevation
-    ans = np.full((nlati, nlong), -1, dtype=np.int16)
+    ans = np.full((nlati, nlong), -1, dtype=np.int32)
 
     # init long to be in [0, 360)
     long = long % 360
 
     # approximating grid
     coord = np.fromfunction(
-        (lambda ilatis, ilongs, itypes: get_grid_coord(ilatis, ilongs, lati, long, NS_width_km, EW_width_km)),
+        (lambda ilatis, ilongs, itypes: get_grid_coord(ilatis, ilongs, angle_rad, lati, long, NS_width_km, EW_width_km)),
         (nlati, nlong, 2),
     )
 
@@ -152,7 +171,7 @@ def interpolate_height_map_AW3D30(
     
     for filename in tiffilenames:
         # update ans with tiles data from each tif file
-        interp = get_interpolator_AW3D30(filename, method=interp_method, opened_data=opened_data, verbose=verbose)
+        interp = get_interpolator_tiff(filename, opened_data=opened_data, verbose=verbose)
         ans0 = interp(coord, method=interp_method)
         nhit = np.count_nonzero(ans0+1)
         nhit_total += nhit
@@ -166,7 +185,7 @@ def interpolate_height_map_AW3D30(
         print(f"Total {nhit_total/ans.size*100: 6.2f}% of the map has been covered.")
         if nhit_total/ans.size < 0.9973: # 99.73% is 3 sigma because why not
             print(
-                f"*** Warning: a large portion of the map ({(1.-nhit_total/ans.size)*100: 6.2f})",
+                f"*** Warning: a large portion of the map ({(1.-nhit_total/ans.size)*100: 6.2f}%)",
                 "hasn't been covered by interpolation. Please consider download and add more map tiles data."
             )
 
@@ -177,7 +196,7 @@ def interpolate_height_map_AW3D30(
     return ans, coord
 
 
-# In[85]:
+# In[6]:
 
 
 def get_CSL_height_maps(
@@ -185,9 +204,12 @@ def get_CSL_height_maps(
     lati        : float,
     tiffilenames: tuple[str],
     cityname    : str   = None,
+    angle_deg   : float = 0.,
     scales      : float | tuple[float, float] = 1.0,
     height_scale: float = 4096.,
-    min_height  : float = 64.,
+    min_height  :  int  = 100,
+    ocean_height:  int  = 90,
+    smooth_range: float = 1.,
     interp_method: str  = 'linear',
     opened_data : dict  = {},
     Rearth_km   : float = 6378.1,
@@ -195,9 +217,20 @@ def get_CSL_height_maps(
 ):
     """Wrapper function to extract height map from data and save them to disk.
 
+    angle_deg: float
+        how many degrees we are rotating the map counter-clockwise.
+        
     scales: float | tuple[float, float]
         if tuple, it should be in format of (width scale, height scale).
 
+    min_height: int
+        Minimum height for *NON-OCEAN* area, in meters.
+        The ocean area will still have an height of ocean_height.
+
+    smooth_range: float
+        size of the smoothing kernel (using gaussian_filter).
+        Set to 0 to disable this.
+    
     Rearth_km: float
         Earth radius in km.
         Do NOT change this unless you are generating a map of Mars or something.
@@ -207,21 +240,24 @@ def get_CSL_height_maps(
     WORLDMAP_WIDTH_km = 57.344
     PLAYABLE_WIDTH_km = 14.336
 
-    long = long % 360
+    long = long % 360.
+    angle_deg = angle_deg % 360.
     try:
         scale_w = scales[0]
-        scale_h = scales[1]
+        scale_h = 1./scales[1]
     except TypeError:
         scale_w = scales
         scale_h = scales
         
 
     # step 1: get world map
-    ans, coord = interpolate_height_map_AW3D30(
-        long=long, lati=lati, tiffilenames=tiffilenames,
+    if verbose: print(f"\tWorld map size ({WORLDMAP_WIDTH_km*scale_w} km)^2")
+    ans, coord = interpolate_height_map_tiff(
+        long=long, lati=lati, tiffilenames=tiffilenames, angle_deg=angle_deg,
         map_width_km=WORLDMAP_WIDTH_km*scale_w, interp_method=interp_method,
         nlati=4096, nlong=4096, opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
-    ans = ans * scale_h + min_height
+    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height)
+    ans = gaussian_filter(ans, sigma=smooth_range)
     
     # sanity checks
     if verbose and np.count_nonzero(ans < 0):
@@ -242,7 +278,7 @@ def get_CSL_height_maps(
     img_arr = (ans / height_scale * 2**16).astype(np.uint16)
 
     if cityname is None:
-        cityname = f"{long:07.3f}_{lati:+07.3f}"
+        cityname = f"long{long:07.3f}_lati{lati:+07.3f}_angle{angle_deg:05.1f}"
         
     outfilename = f"worldmap_{cityname}.png"
     with open(outfilename, 'wb') as f:
@@ -252,17 +288,20 @@ def get_CSL_height_maps(
     img_arr_orig = img_arr
 
 
+    
     # step 2: get the height map
-    ans, _ = interpolate_height_map_AW3D30(
-        long=long, lati=lati, tiffilenames=tiffilenames,
+    if verbose: print(f"\tPlayable map size ({PLAYABLE_WIDTH_km*scale_w} km)^2")
+    ans, _ = interpolate_height_map_tiff(
+        long=long, lati=lati, tiffilenames=tiffilenames, angle_deg=angle_deg,
         map_width_km=PLAYABLE_WIDTH_km*scale_w, interp_method=interp_method,
         nlati=4096, nlong=4096, opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
-    ans = ans * scale_h + min_height
+    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height)
+    ans = gaussian_filter(ans, sigma=smooth_range)
     
     # sanity checks
-    if np.count_nonzero(ans < 0):
+    if verbose and np.count_nonzero(ans < 0):
         print("*   Warning: artifacts in playable image detected.")
-    if ans.max() >= height_scale:
+    if verbose and ans.max() >= height_scale:
         print(f"*** Warning: maximum height = {ans.max()} is higher than height_scale.")
         print(f"\tWill NOT do anything.")
 
@@ -274,15 +313,18 @@ def get_CSL_height_maps(
         if verbose: print(f"Saving to {outfilename}")
         writer.write(f, img_arr)
 
+    if verbose:
+        print("\n\tAll Done.\n")
+
     return img_arr_orig, coord
 
 
 # # Example
 
-# In[86]:
+# In[7]:
 
 
-# example
+# example 1
 
 # download the relevant data from https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d_e.htm
 #    (or some other sources, I don't care)
@@ -292,13 +334,16 @@ def get_CSL_height_maps(
 #    if you see a patch of the image is constant at minimal height-1,
 #    then you haven't downloaded & added the data of that patch. Probably.
 tiffilenames = [
-    'raw/ALPSMLC30_N063W018_DSM.tif',
-    'raw/ALPSMLC30_N063W019_DSM.tif',
+    'raw/ALPSMLC30_N063W017_DSM.tif',
+    'raw/ALPSMLC30_N064W016_DSM.tif',
+    'raw/ALPSMLC30_N064W017_DSM.tif',
 ]
 
-img_arr, coord = get_CSL_height_maps(
-    long=-18.350, lati=+63.580, tiffilenames=tiffilenames, scales=(1.0, 1.0))
-# e.g. scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
+# Parameters explanation
+#  angle_deg is the degrees the map will be rotated
+#  scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
 #    (i.e. mapping real world 1.5*57.344km to game 57.344km)
 #    while stretching the heights to 1:1.2
+img_arr, coord = get_CSL_height_maps(
+    long=-16.000, lati=+64.185, angle_deg=45., tiffilenames=tiffilenames, scales=(1.2, 1.0))
 
