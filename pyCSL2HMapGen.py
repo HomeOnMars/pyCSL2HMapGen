@@ -196,7 +196,7 @@ def interpolate_height_map_tiff(
     return ans, coord
 
 
-# In[6]:
+# In[17]:
 
 
 def get_CSL_height_maps(
@@ -205,12 +205,13 @@ def get_CSL_height_maps(
     tiffilenames: tuple[str],
     cityname    : str   = None,
     angle_deg   : float = 0.,
-    scales      : float | tuple[float, float] = 1.0,
+    map_scales  : float | tuple[float, float] = 1.0,
     height_scale: float = 4096.,
-    min_height  :  int  = 100,
+    min_height_m:  int  = 100,
     ocean_height:  int  = 90,
-    smooth_range: float = 1.,
-    interp_method: str  = 'linear',
+    smooth_shore_rad_m  : float= 112.,
+    smooth_rad_m: float = 112.,
+    interp_method       : str  = 'linear',
     opened_data : dict  = {},
     Rearth_km   : float = 6378.1,
     verbose     : bool  = True,
@@ -220,44 +221,58 @@ def get_CSL_height_maps(
     angle_deg: float
         how many degrees we are rotating the map counter-clockwise.
         
-    scales: float | tuple[float, float]
+    map_scales: float | tuple[float, float]
+        map_scales = real world size / game map size
         if tuple, it should be in format of (width scale, height scale).
 
-    min_height: int
+    min_height_m: int
         Minimum height for *NON-OCEAN* area, in meters.
         The ocean area will still have an height of ocean_height.
 
-    smooth_range: float
-        size of the smoothing kernel (using gaussian_filter).
+    smooth_shore_rad_m: float
+        size of the smoothing kernel in game meters (using gaussian_filter), for shorelines.
+        The function will first smooth the shoreline with this (smooth_shore_rad_m),
+            then go through the smooth kernel again for the whole map using smooth_rad_m.
+    
+    smooth_rad_m: float
+        size of the smoothing kernel in game meters (using gaussian_filter).
         Set to 0 to disable this.
     
     Rearth_km: float
-        Earth radius in km.
+        Earth radius in real-world km.
         Do NOT change this unless you are generating a map of Mars or something.
         
     """
 
     WORLDMAP_WIDTH_km = 57.344
     PLAYABLE_WIDTH_km = 14.336
+    WORLDMAP_NRES = 4096
+    PLAYABLE_NRES = 4096
+    
 
     long = long % 360.
     angle_deg = angle_deg % 360.
     try:
-        scale_w = scales[0]
-        scale_h = 1./scales[1]
+        scale_w = map_scales[0]
+        scale_h = 1./map_scales[1]
     except TypeError:
-        scale_w = scales
-        scale_h = scales
+        scale_w = map_scales
+        scale_h = map_scales
         
 
     # step 1: get world map
-    if verbose: print(f"\tWorld map size ({WORLDMAP_WIDTH_km*scale_w} km)^2")
+    if verbose: print(f"\n\tWorld map size ({WORLDMAP_WIDTH_km*scale_w:.3f} km)^2")
     ans, coord = interpolate_height_map_tiff(
         long=long, lati=lati, tiffilenames=tiffilenames, angle_deg=angle_deg,
         map_width_km=WORLDMAP_WIDTH_km*scale_w, interp_method=interp_method,
-        nlati=4096, nlong=4096, opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
-    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height)
-    ans = gaussian_filter(ans, sigma=smooth_range)
+        nlati=WORLDMAP_NRES, nlong=WORLDMAP_NRES,
+        opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
+    ans_ocean_indexes    = np.where(ans==0)
+    smooth_shore_rad_pix = smooth_shore_rad_m / (1e3 * WORLDMAP_WIDTH_km / WORLDMAP_NRES)
+    smooth_rad_pix       = smooth_rad_m       / (1e3 * WORLDMAP_WIDTH_km / WORLDMAP_NRES)
+    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height_m)
+    ans[*ans_ocean_indexes] = gaussian_filter(ans, sigma=smooth_shore_rad_pix)[*ans_ocean_indexes]
+    ans = gaussian_filter(ans, sigma=smooth_rad_pix)
     
     # sanity checks
     if verbose and np.count_nonzero(ans < 0):
@@ -272,13 +287,15 @@ def get_CSL_height_maps(
         print(
             f"\tCenter point at longtitude {long}, latitude {lati}\n",
             f"\tWorld Map longitude range from {np.min(coord[:, :, 1]): 10.6} to {np.max(coord[:, :, 1]): 10.6}\n",
-            f"\t          latitude  range from {np.min(coord[:, :, 0]):+10.6} to {np.max(coord[:, :, 0]):+10.6}\n",
+            f"\t          latitude  range from {np.min(coord[:, :, 0]):+10.6} to {np.max(coord[:, :, 0]):+10.6}",
         )
+    if verbose:
+        print(f"\tSmoothing Kernel radius {smooth_shore_rad_pix:.2f} pixel (shore), {smooth_rad_pix:.2f} pixel (all)")
     
     img_arr = (ans / height_scale * 2**16).astype(np.uint16)
 
     if cityname is None:
-        cityname = f"long{long:07.3f}_lati{lati:+07.3f}_angle{angle_deg:05.1f}"
+        cityname = f"long{long:07.3f}_lati{lati:+07.3f}_angle{angle_deg:05.1f}_scale{scale_w:.2f}+{scale_h:.2f}"
         
     outfilename = f"worldmap_{cityname}.png"
     with open(outfilename, 'wb') as f:
@@ -290,13 +307,18 @@ def get_CSL_height_maps(
 
     
     # step 2: get the height map
-    if verbose: print(f"\tPlayable map size ({PLAYABLE_WIDTH_km*scale_w} km)^2")
+    if verbose: print(f"\n\tPlayable map size ({PLAYABLE_WIDTH_km*scale_w:.3f} km)^2")
     ans, _ = interpolate_height_map_tiff(
         long=long, lati=lati, tiffilenames=tiffilenames, angle_deg=angle_deg,
         map_width_km=PLAYABLE_WIDTH_km*scale_w, interp_method=interp_method,
-        nlati=4096, nlong=4096, opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
-    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height)
-    ans = gaussian_filter(ans, sigma=smooth_range)
+        nlati=PLAYABLE_NRES, nlong=PLAYABLE_NRES,
+        opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
+    ans_ocean_indexes    = np.where(ans==0)
+    smooth_shore_rad_pix = smooth_shore_rad_m / (1e3 * PLAYABLE_WIDTH_km / PLAYABLE_NRES)
+    smooth_rad_pix       = smooth_rad_m       / (1e3 * PLAYABLE_WIDTH_km / PLAYABLE_NRES)
+    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height_m)
+    ans[*ans_ocean_indexes] = gaussian_filter(ans, sigma=smooth_shore_rad_pix)[*ans_ocean_indexes]
+    ans = gaussian_filter(ans, sigma=smooth_rad_pix)
     
     # sanity checks
     if verbose and np.count_nonzero(ans < 0):
@@ -304,7 +326,11 @@ def get_CSL_height_maps(
     if verbose and ans.max() >= height_scale:
         print(f"*** Warning: maximum height = {ans.max()} is higher than height_scale.")
         print(f"\tWill NOT do anything.")
-
+    elif verbose:
+        print(f"\tmaximum height = {ans.max()}")
+    if verbose:
+        print(f"\tSmoothing Kernel radius {smooth_shore_rad_pix:.2f} pixel (shore), {smooth_rad_pix:.2f} pixel (all)")
+        
     img_arr = (ans / height_scale * 2**16).astype(np.uint16)
     
     outfilename = f"playable_{cityname}.png"
@@ -321,7 +347,7 @@ def get_CSL_height_maps(
 
 # # Example
 
-# In[7]:
+# In[23]:
 
 
 # example 1
@@ -341,9 +367,15 @@ tiffilenames = [
 
 # Parameters explanation
 #  angle_deg is the degrees the map will be rotated
-#  scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
+#  map_scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
 #    (i.e. mapping real world 1.5*57.344km to game 57.344km)
 #    while stretching the heights to 1:1.2
 img_arr, coord = get_CSL_height_maps(
-    long=-16.000, lati=+64.185, angle_deg=45., tiffilenames=tiffilenames, scales=(1.2, 1.0))
+    long=-16.000, lati=+64.185, angle_deg=30., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
+
+
+# In[ ]:
+
+
+
 
