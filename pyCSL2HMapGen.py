@@ -196,7 +196,7 @@ def interpolate_height_map_tiff(
     return ans, coord
 
 
-# In[17]:
+# In[6]:
 
 
 def get_CSL_height_maps(
@@ -208,9 +208,9 @@ def get_CSL_height_maps(
     map_scales  : float | tuple[float, float] = 1.0,
     height_scale: float = 4096.,
     min_height_m:  int  = 100,
-    ocean_height:  int  = 90,
-    smooth_shore_rad_m  : float= 112.,
-    smooth_rad_m: float = 112.,
+    ocean_height:  int  = 50,
+    smooth_shore_rad_m  : float= 448.,
+    smooth_rad_m: float = 14.,
     interp_method       : str  = 'linear',
     opened_data : dict  = {},
     Rearth_km   : float = 6378.1,
@@ -226,16 +226,16 @@ def get_CSL_height_maps(
         if tuple, it should be in format of (width scale, height scale).
 
     min_height_m: int
-        Minimum height for *NON-OCEAN* area, in meters.
+        Minimum height for *NON-OCEAN* area, in meters. Must >= 1.
         The ocean area will still have an height of ocean_height.
 
     smooth_shore_rad_m: float
-        size of the smoothing kernel in game meters (using gaussian_filter), for shorelines.
+        size of the smoothing kernel in in-sgame meters (using gaussian_filter), for shorelines.
         The function will first smooth the shoreline with this (smooth_shore_rad_m),
             then go through the smooth kernel again for the whole map using smooth_rad_m.
     
     smooth_rad_m: float
-        size of the smoothing kernel in game meters (using gaussian_filter).
+        size of the smoothing kernel in in-game meters (using gaussian_filter).
         Set to 0 to disable this.
     
     Rearth_km: float
@@ -271,7 +271,9 @@ def get_CSL_height_maps(
     smooth_shore_rad_pix = smooth_shore_rad_m / (1e3 * WORLDMAP_WIDTH_km / WORLDMAP_NRES)
     smooth_rad_pix       = smooth_rad_m       / (1e3 * WORLDMAP_WIDTH_km / WORLDMAP_NRES)
     ans = np.where(ans==0, ocean_height, ans * scale_h + min_height_m)
-    ans[*ans_ocean_indexes] = gaussian_filter(ans, sigma=smooth_shore_rad_pix)[*ans_ocean_indexes]
+    # smooth the shorelines- cap the height to min_height_m to avoid werid things near mountain foot
+    ans_ocean_filtered = gaussian_filter(ans, sigma=smooth_shore_rad_pix)
+    ans[*ans_ocean_indexes] = np.where(ans_ocean_filtered>min_height_m-1, min_height_m-1, ans_ocean_filtered)[*ans_ocean_indexes]
     ans = gaussian_filter(ans, sigma=smooth_rad_pix)
     
     # sanity checks
@@ -317,7 +319,9 @@ def get_CSL_height_maps(
     smooth_shore_rad_pix = smooth_shore_rad_m / (1e3 * PLAYABLE_WIDTH_km / PLAYABLE_NRES)
     smooth_rad_pix       = smooth_rad_m       / (1e3 * PLAYABLE_WIDTH_km / PLAYABLE_NRES)
     ans = np.where(ans==0, ocean_height, ans * scale_h + min_height_m)
-    ans[*ans_ocean_indexes] = gaussian_filter(ans, sigma=smooth_shore_rad_pix)[*ans_ocean_indexes]
+    # smooth the shorelines- cap the height to min_height_m to avoid werid things near mountain foot
+    ans_ocean_filtered = gaussian_filter(ans, sigma=smooth_shore_rad_pix)
+    ans[*ans_ocean_indexes] = np.where(ans_ocean_filtered>min_height_m-1, min_height_m-1, ans_ocean_filtered)[*ans_ocean_indexes]
     ans = gaussian_filter(ans, sigma=smooth_rad_pix)
     
     # sanity checks
@@ -347,7 +351,7 @@ def get_CSL_height_maps(
 
 # # Example
 
-# In[23]:
+# In[7]:
 
 
 # example 1
@@ -371,7 +375,7 @@ tiffilenames = [
 #    (i.e. mapping real world 1.5*57.344km to game 57.344km)
 #    while stretching the heights to 1:1.2
 img_arr, coord = get_CSL_height_maps(
-    long=-16.000, lati=+64.185, angle_deg=30., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
+    long=-16.000, lati=+64.185, angle_deg=0., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
 
 
 # In[ ]:
