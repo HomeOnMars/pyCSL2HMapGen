@@ -16,10 +16,16 @@ An alternative solution to get the terrain map without having to signing up for 
 
 
 ## How to: import real-world height map for Cities: Skylines 2 Map Editor (beta)
-This script uses python, so you will need a environment that can run python scripts.
+You can just visit https://terraining.ateliernonta.com/ and use their website's tool to download the height map.
+
+However, if you
+1) prefer not to signing up for mapbox (required for the above website's height-map download function), and
+2) know how to run pythong script,
+then you can use this script to do (more-or-less) the same,
+by following the following steps.
 
 Use pip or Anaconda (or whatever) to install the required dependencies:
-    python (>=3.10), numpy, scipy, gdal, pyppng
+    python (>=3.10), numpy, scipy, gdal, pypng
 before you continue.
 
 #### Step 1: Find a real world location you want to make your CSL2 map out of.
