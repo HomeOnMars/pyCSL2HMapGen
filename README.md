@@ -62,8 +62,8 @@ Change the parameters (from Step 1) for the function call get_CSL_height_maps():
 Feel free to explore other parameters of the function.
 
 #### Step 4: Run the script
-This should produce 2 files: `worldmap_{cityname}.png` and `playable_{cityname}.png`
-(cityname by default is the longtitude, latitude, and the rotational angle.)
+This should produce 2 files: `worldmap_{cityname}.png` and `playable_{cityname}.png` in the script folder.
+(cityname by default is the longtitude, latitude, rotational angle, and scale.)
 These are the heightmaps.
 
 #### Step 5: Import them in-game
