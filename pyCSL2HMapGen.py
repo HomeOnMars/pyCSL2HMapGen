@@ -267,14 +267,31 @@ def get_CSL_height_maps(
         map_width_km=WORLDMAP_WIDTH_km*scale_w, interp_method=interp_method,
         nlati=WORLDMAP_NRES, nlong=WORLDMAP_NRES,
         opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
-    ans_ocean_indexes    = np.where(ans==0)
+    
+    #  get # of pixels for the smooth kernel radius
     smooth_shore_rad_pix = smooth_shore_rad_m / (1e3 * WORLDMAP_WIDTH_km / WORLDMAP_NRES)
     smooth_rad_pix       = smooth_rad_m       / (1e3 * WORLDMAP_WIDTH_km / WORLDMAP_NRES)
-    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height_m)
-    # smooth the shorelines- cap the height to min_height_m to avoid werid things near mountain foot
-    ans_ocean_filtered = gaussian_filter(ans, sigma=smooth_shore_rad_pix)
-    ans[*ans_ocean_indexes] = np.where(ans_ocean_filtered>min_height_m-1, min_height_m-1, ans_ocean_filtered)[*ans_ocean_indexes]
+    #  smooth the shorelines- cap the height to min_height_m just in case
+    ans_in_ocean         = (ans==0)    # np bool array, true if ocean, false if land
+    ans = np.where(ans_in_ocean, ocean_height, ans * scale_h + min_height_m)    # re-scaled
+    #  how close is a pixel in ocean to land
+    if verbose: print("Smoothing.", end='')
+    ans_shorelineness    = gaussian_filter(np.where(ans_in_ocean, 0., 1.), sigma=smooth_shore_rad_pix)
+    #  smooth the shoreline
+    if verbose: print('.', end='')
+    ans_ocean_filtered   = gaussian_filter(
+        np.where(ans_shorelineness<0.125, ocean_height, min_height_m),
+        sigma=smooth_shore_rad_pix)
+    ans = np.where(ans_in_ocean,
+                   np.where(ans_ocean_filtered>min_height_m-1,
+                            min_height_m-1,
+                            ans_ocean_filtered),
+                   ans)
+    # final general smoothing
+    if verbose: print('.', end='')
     ans = gaussian_filter(ans, sigma=smooth_rad_pix)
+    if verbose: print(" Done.")
+        
     
     # sanity checks
     if verbose and np.count_nonzero(ans < 0):
@@ -315,14 +332,31 @@ def get_CSL_height_maps(
         map_width_km=PLAYABLE_WIDTH_km*scale_w, interp_method=interp_method,
         nlati=PLAYABLE_NRES, nlong=PLAYABLE_NRES,
         opened_data=opened_data, Rearth_km=Rearth_km, verbose=verbose)
-    ans_ocean_indexes    = np.where(ans==0)
+    
+    #  get # of pixels for the smooth kernel radius
     smooth_shore_rad_pix = smooth_shore_rad_m / (1e3 * PLAYABLE_WIDTH_km / PLAYABLE_NRES)
     smooth_rad_pix       = smooth_rad_m       / (1e3 * PLAYABLE_WIDTH_km / PLAYABLE_NRES)
-    ans = np.where(ans==0, ocean_height, ans * scale_h + min_height_m)
-    # smooth the shorelines- cap the height to min_height_m to avoid werid things near mountain foot
-    ans_ocean_filtered = gaussian_filter(ans, sigma=smooth_shore_rad_pix)
-    ans[*ans_ocean_indexes] = np.where(ans_ocean_filtered>min_height_m-1, min_height_m-1, ans_ocean_filtered)[*ans_ocean_indexes]
+    #  smooth the shorelines- cap the height to min_height_m just in case
+    ans_in_ocean         = (ans==0)    # np bool array, true if ocean, false if land
+    ans = np.where(ans_in_ocean, ocean_height, ans * scale_h + min_height_m)    # re-scaled
+    #  how close is a pixel in ocean to land
+    if verbose: print("Smoothing.", end='')
+    ans_shorelineness    = gaussian_filter(np.where(ans_in_ocean, 0., 1.), sigma=smooth_shore_rad_pix)
+    #  smooth the shoreline
+    if verbose: print('.', end='')
+    ans_ocean_filtered   = gaussian_filter(
+        np.where(ans_shorelineness<0.125, ocean_height, min_height_m),
+        sigma=smooth_shore_rad_pix)
+    ans = np.where(ans_in_ocean,
+                   np.where(ans_ocean_filtered>min_height_m-1,
+                            min_height_m-1,
+                            ans_ocean_filtered),
+                   ans)
+    # final general smoothing
+    if verbose: print('.', end='')
     ans = gaussian_filter(ans, sigma=smooth_rad_pix)
+    if verbose: print(" Done.")
+        
     
     # sanity checks
     if verbose and np.count_nonzero(ans < 0):
@@ -375,7 +409,7 @@ tiffilenames = [
 #    (i.e. mapping real world 1.5*57.344km to game 57.344km)
 #    while stretching the heights to 1:1.2
 img_arr, coord = get_CSL_height_maps(
-    long=-16.000, lati=+64.185, angle_deg=0., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
+    long=-16.000, lati=+64.185, angle_deg=30., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
 
 
 # In[ ]:
