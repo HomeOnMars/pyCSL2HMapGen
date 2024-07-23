@@ -21,7 +21,9 @@ Just visit https://terraining.ateliernonta.com/ and use their website's tool to 
 However, if you
 1) prefer not to signing up for mapbox (required for the above method), and
 2) know how to use `python`,
-then you can use my code to do more-or-less the same by following the following steps:
+
+then you can use my code to do more-or-less the same,
+by following the following steps:
 
 #### Step 0: Install python
 Use pip or Anaconda (or whatever) to install the required dependencies:
@@ -43,12 +45,12 @@ If you download data from JAXA, you will need to register for their website,
 **and supply them your name, company, email address** etc. personal information.
 (At least they don't ask for your credit card number, unlike mapbox :-/ )
 Make sure to read their *terms of service* too.
-Their data are free-to-use but **you need to acknowledge your use of their data** in the final product by adding a line states that:
-'The original data used for this product have been supplied by JAXA's ALOS Global Digital Surface Model "ALOS World 3D - 30m" (AW3D30)'
+Their data are free-to-use but **you need to acknowledge your use of their data** - 
+see their ToS for the exact wording requirements.
 
 #### Step 3: Download & set the parameters of the script here.
 Use `git clone` or whatever method to download this
-(there should also be a green `code` button in the up-right corner- click that and you will see the download options.)
+(See the green `code` button in the up-right corner of this webpage.)
 Make sure python & the dependencies are installed.
 Put the map data into the raw folder inside the script folder.
 Now open the jupyter notebook file (`pyCSL2HMapGen.ipynb`) if you have jupyter notebook,
