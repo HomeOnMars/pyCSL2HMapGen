@@ -390,7 +390,7 @@ class HMap:
         cmap = fig.colorbar(cax)
         ax.set_title(
             "Height Map\n" +
-            f"(Seabed: {self.z_seabed:.0f}m above zero for self.data," +
+            f"(Seabed: {self.z_seabed:.0f}m above zero point; " +
             f"{z_sealvl - self.z_seabed:.0f}m below sea)")
         cmap.set_label('Meters above sea level')
 
