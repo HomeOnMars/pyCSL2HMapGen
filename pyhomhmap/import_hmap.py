@@ -7,6 +7,7 @@
 """A simple script to extract & interpolate CSL2 height map from JAXA:AW3D30 data files.
 
 Author: HomeOnMars
+-------------------------------------------------------------------------------
 """
 
 
@@ -15,7 +16,7 @@ Author: HomeOnMars
 # In[2]:
 
 
-# dependencies: numpy, scipy, gdal, pyppng
+# dependencies: numpy, scipy, gdal, pypng
 import numpy as np
 from numpy import pi
 from scipy.interpolate import RegularGridInterpolator
