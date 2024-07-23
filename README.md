@@ -6,13 +6,9 @@ See the Example section of pyCSL2HMapGen.ipynb for a quick guide!
 
 
 ## What does it do
-Generating world & playable area's height maps for CSL2, for the tech-savvy folks who know how to run python scripts.
+Generating and handling world & playable area's height maps for CSL2,
+written by and for the python-knowing folks.
 
-Codes in the script are written from scratch.
-
-
-## Motivation
-An alternative solution to get the terrain map without having to signing up for mapbox and giving them my credit card number...
 
 
 ## How to: import real-world height map for Cities: Skylines 2 Map Editor (beta)

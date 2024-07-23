@@ -3,6 +3,8 @@ temp/
 *.tif
 *.tiff
 *.png
+*.bkp.ipynb
+*.bkp.py
 
 
 # Byte-compiled / optimized / DLL files
