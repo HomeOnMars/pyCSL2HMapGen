@@ -31,7 +31,10 @@ class HMap:
     ------------------
     data       : (self._npix_xy)-shaped numpy array (np.float64)
         Contains height map data in meters.
-        MUST be 2D with len in every dim a multiple of 8
+        MUST be:
+            1) 2D,
+            2) postive in every pixel,
+            3) # of pixels per row and per column being a multiple of 8.
 
     _ndim      : int = 2
         dimensions. Should always be 2.
@@ -49,11 +52,11 @@ class HMap:
         (Because 57344 = 3.5*4*4096)
 
     z_seabed : float
-        Seabed height in meters.
+        Seabed height in meters. Must be positive.
         Defines the minimum height of self.data
 
     z_sealvl : float
-        Sea level height in meters.
+        Sea level height in meters. Must be positive.
         Defines the height of the ocean.
         Every pixel in self.data below self.z_sealvl is considered in the sea.
 
@@ -106,6 +109,8 @@ class HMap:
         # safety checks
         assert self._ndim == 2
         assert np.all(np.array(self._npix_xy_8) * 8 == np.array(self._npix_xy))
+        assert self.z_seabed >= 0
+        assert self.z_sealvl >= 0
         
         return self
 
@@ -114,9 +119,11 @@ class HMap:
     
     def __repr__(self):
         return f"""Height map object:
+
 # Meta data
     Pixels shape  : {self.data.shape = } | {self._npix_xy = }
-    Map Widths    : {self._map_width[0] = :.2f} ; {self._map_width[1] = :.2f} ({len(self._map_width) = })
+    Map Widths    : x {self._map_width[0]:.2f},    y {self._map_width[1]:.2f},\
+    with {len(self._map_width) = }
 
 # Height data insight
     Average height: {np.average(self.data):.2f} +/- {np.std(self.data):.2f}
@@ -158,7 +165,7 @@ class HMap:
             i.e. the scale of the height.
         
         """
-        npix_x, npix_y, pixels, meta = png.Reader(
+        npix_y, npix_x, pixels, meta = png.Reader(
             filename=filename).read_flat()
         bit_depth : int = meta['bitdepth']
         if verbose and bit_depth != 16:
@@ -174,6 +181,77 @@ class HMap:
         )
         
         return self
+
+    
+
+
+    def save_png(
+        self,
+        outfilename : str,
+        bit_depth   : int = 16,
+        height_scale: None|float = 4096.,
+        compression : int = 9,    # maximum compression
+        verbose     : bool = True,
+    ):
+        """Save to a png file."""
+
+        if height_scale is None:
+            height_scale = np.max(self.data) + 1
+
+        # safety check
+        if verbose:
+            nbad_pixels = np.count_nonzero(self.data < self.z_seabed)
+            noverflowed = np.count_nonzero(self.data > height_scale)
+            if nbad_pixels:
+                print(
+                    f"**  Warning: Data have {nbad_pixels}" +
+                    "bad pixels where data < seabed height.\n" +
+                    "These pixels will be replaced by seabed height " +
+                    f"{z_seabed = }"
+                )
+            if noverflowed:
+                print(
+                    f"**  Warning: Data have {noverflowed}" +
+                    f"overflowed pixels where data > height scale " +
+                    f"{height_scale = }.\n" +
+                    "These pixels will be replaced by maximum height " +
+                    f"{(2**bit_depth - 1) / 2**bit_depth * height_scale = }"
+                )
+
+        ans_dtype = np.uint64
+        if   bit_depth == 16:
+            ans_dtype = np.uint16
+        elif bit_depth == 24 or bit_depth == 32:
+            ans_dtype = np.uint32
+        elif bit_depth == 8:
+            ans_dtype = np.uint8
+        elif verbose:
+            print(
+                f"**  Warning: Unknown {bit_depth = }. " +
+                "Are you sure it's not supposed to be 16?"
+            )
+
+        # convert from float to uint, for saving
+        ans = np.where(
+            self.data >= height_scale,
+            2**bit_depth - 1,    # overflowed
+            (np.where(
+                self.data < self.z_seabed,
+                self.z_seabed,   # bad pixel
+                self.data,       # good data
+            )) / (height_scale / 2**bit_depth),
+        ).astype(ans_dtype)
+        
+        #outfilename = f"worldmap_{cityname}.png"
+        with open(outfilename, 'wb') as f:
+            writer = png.Writer(
+                width=ans.shape[1], height=ans.shape[0],
+                bitdepth=bit_depth, greyscale=True,
+                compression=compression,
+            )
+            if verbose: print(f"Saving to '{outfilename}'...", end=' ')
+            writer.write(f, ans)
+            if verbose: print(f"Done.")
 
 
 
