@@ -122,7 +122,8 @@ class HMap:
 
 # Meta data
     Pixels shape  : {self.data.shape = } | {self._npix_xy = }
-    Map Widths    : NS/y {self._map_width[0]:.2f},    EW/x {self._map_width[1]:.2f},\
+    Map Widths    : NS/y {self._map_width[0]:.2f},\
+    EW/x {self._map_width[1]:.2f},\
     with {len(self._map_width) = }
 
 # Height data insight
@@ -165,14 +166,19 @@ class HMap:
             i.e. the scale of the height.
         
         """
+        if verbose:
+            print(f"Loading height map data from file '{filename}'.", end='')
         npix_y, npix_x, pixels, meta = png.Reader(
             filename=filename).read_flat()
         bit_depth : int = meta['bitdepth']
-        if verbose and bit_depth != 16:
-            print(f"**  Warning: Unexpected {bit_depth = }")
+
+            
+        if verbose: print(".", end='')
         pixels = np.array(
             pixels).reshape( (npix_x, npix_y)
         ) * (height_scale / 2**bit_depth)
+        
+        if verbose: print(".", end='')
         self.__init__(
             data      = pixels,
             map_width = map_width,
@@ -180,19 +186,74 @@ class HMap:
             z_sealvl  = z_sealvl,
         )
         
+        if verbose:
+            print(f" Done.\n\n{self.__str__()}")
+
+        if verbose and bit_depth != 16:
+            print(f"**  Warning: Unexpected {bit_depth = }")
+        
         return self
+
+    
+
+
+    def load_csl_hmap(
+        self,
+        cityname     : None|str,
+        dir_path     : None|str = './out/',
+        map_type     : str   = 'worldmap', # 'worldmap' or 'playable'
+        height_scale : float = 4096.,
+        z_seabed     : float = 64.,
+        z_sealvl     : float = 128.,
+        verbose      : bool  = True,
+        **kwargs,
+    ) -> Self:
+        """Loading a Cities Skylines 2 Height Map.
+        
+        Parameters
+        ----------
+        cityname : str
+            hmap file has the name of
+            f"{dir_path}{map_type}_{cityname}.png"
+            
+        dir_path  : str
+            Input directory path (i.e. filepath prefix)
+
+        map_type  : 'worldmap' or 'playable'
+        ...
+        
+        """
+        if dir_path is None: dir_path = './'
+        if cityname  is None: cityname  = ''
+            
+        filename = f"{dir_path}{map_type}_{cityname}.png"
+
+        if   map_type in {'worldmap'}:
+            map_width = 57344.
+        elif map_type in {'playable'}:
+            map_width = 14336.
+
+        return self.load_png(
+            filename  = filename,
+            map_width = map_width,
+            height_scale = height_scale,
+            z_seabed  = z_seabed,
+            z_sealvl  = z_sealvl,
+            verbose   = verbose,
+            **kwargs,
+        )
 
     
 
 
     def save_png(
         self,
-        outfilename : str,
-        bit_depth   : int = 16,
-        height_scale: None|float = 4096.,
-        compression : int = 9,    # maximum compression
-        verbose     : bool = True,
-    ):
+        filename     : str,
+        bit_depth    : int = 16,
+        height_scale : None|float = 4096.,
+        compression  : int = 9,    # maximum compression
+        verbose      : bool = True,
+    ) -> Self:
         """Save to a png file."""
 
         if height_scale is None:
@@ -206,20 +267,24 @@ class HMap:
             noverflowed = np.count_nonzero(self.data > height_scale)
             if nbad_pixels:
                 print(
-                    f"**  Warning: Data have {nbad_pixels}" +
+                    f"\n**  Warning: Data have {nbad_pixels} " +
+                    f"({nbad_pixels/self.data.size*100:6.1f} %) " +
                     "bad pixels where data < seabed height.\n" +
                     "These pixels will be replaced by seabed height " +
-                    f"{z_seabed = }"
+                    f"{self.z_seabed = }"
                 )
             if noverflowed:
                 print(
-                    f"**  Warning: Data have {noverflowed}" +
+                    f"\n**  Warning: Data have {noverflowed} " +
+                    f"({noverflowed/self.data.size*100:6.1f} %) " +
                     f"overflowed pixels where data > height scale " +
                     f"{height_scale = }.\n" +
                     "These pixels will be replaced by maximum height " +
                     f"{(2**bit_depth - 1) / 2**bit_depth * height_scale = }"
                 )
-
+            if nbad_pixels or noverflowed:
+                print(self)
+        
         ans_dtype = np.uint64
         if   bit_depth == 16:
             ans_dtype = np.uint16
@@ -233,6 +298,10 @@ class HMap:
                 "Are you sure it's not supposed to be 16?"
             )
 
+        
+        if verbose: print(f"Saving height map data to file '{filename}'.", end='')
+
+        
         # convert from float to uint, for saving
         ans = np.where(
             self.data >= height_scale,
@@ -243,19 +312,61 @@ class HMap:
                 self.data,       # good data
             )) / (height_scale / 2**bit_depth),
         ).astype(ans_dtype)
+
+        if verbose: print(f'.', end='')
         
-        #outfilename = f"worldmap_{cityname}.png"
-        with open(outfilename, 'wb') as f:
+        with open(filename, 'wb') as f:
             writer = png.Writer(
                 width=ans.shape[1], height=ans.shape[0],
                 bitdepth=bit_depth, greyscale=True,
                 compression=compression,
             )
-            if verbose: print(f"Saving to '{outfilename}'...", end=' ')
+            if verbose: print(f'.', end='')
             writer.write(f, ans)
-            if verbose: print(f"Done.")
+            if verbose: print(f" Done.")
+
+        return self
 
 
+
+
+    def save_csl_hmap(
+        self,
+        cityname     : None|str,
+        dir_path     : None|str = './out/',
+        map_type     : str   = 'worldmap', # 'worldmap' or 'playable'
+        height_scale : None|float = 4096.,
+        compression  : int = 9,    # maximum compression
+        verbose      : bool = True,
+        **kwargs,
+    ) -> Self:
+        """Save to Cities Skylines 2 compatible Height Map.
+
+        
+        Parameters
+        ----------
+        cityname : str
+            hmap file has the name of
+            f"{dir_path}{map_type}_{cityname}.png"
+            
+        dir_path  : str
+            Input directory path (i.e. filepath prefix)
+
+        map_type  : 'worldmap' or 'playable'
+        ...
+        """
+        filename = f"{dir_path}{map_type}_{cityname}.png"
+        bit_depth = 16
+        return self.save_png(
+            filename     = filename,
+            bit_depth    = 16,
+            height_scale = height_scale,
+            compression  = compression,
+            verbose = verbose,
+            **kwargs,
+        )
+
+    
 
     
     def plot(
