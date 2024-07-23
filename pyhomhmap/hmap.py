@@ -104,7 +104,7 @@ class HMap:
             len(self._map_width)
         except TypeError:
             self._map_width = tuple([
-                self._map_width for i in range(len(self._npix_xy))])
+                self._map_width for i in range(self._ndim)])
             
         # safety checks
         assert self._ndim == 2
@@ -299,7 +299,8 @@ class HMap:
             )
 
         
-        if verbose: print(f"Saving height map data to file '{filename}'.", end='')
+        if verbose:
+            print(f"Saving height map data to file '{filename}'.", end='')
 
         
         # convert from float to uint, for saving
