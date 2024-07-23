@@ -111,6 +111,29 @@ class HMap:
 
 
 
+    
+    def __repr__(self):
+        return f"""Height map object:
+# Meta data
+    Pixels shape  : {self.data.shape = } | {self._npix_xy = }
+    Map Widths    : {self._map_width[0] = :.2f} ; {self._map_width[1] = :.2f} ({len(self._map_width) = })
+
+# Height data insight
+    Average height: {np.average(self.data):.2f} +/- {np.std(self.data):.2f}
+    Height  range : [{np.min(self.data):.2f}, {np.max(self.data):.2f}]
+    Seabed height : {self.z_seabed = :.2f}
+    Sea level     : {self.z_sealvl = :.2f}
+        """
+
+
+
+    
+    def __str__(self):
+        return self.__repr__()
+
+    
+
+    
     def load_png(
         self,
         filename     : str,
@@ -154,6 +177,7 @@ class HMap:
 
 
 
+    
     def plot(
         self,
         figsize : tuple[int, int] = (8, 6),
