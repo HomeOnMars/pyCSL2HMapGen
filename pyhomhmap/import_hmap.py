@@ -214,6 +214,7 @@ def get_CSL_height_maps(
     interp_method       : str  = 'linear',
     opened_data : dict  = {},
     Rearth_km   : float = 6378.1,
+    out_filepath: None|str = './out/',
     verbose     : bool  = True,
 ):
     """Wrapper function to extract height map from data and save them to disk.
@@ -237,6 +238,9 @@ def get_CSL_height_maps(
     smooth_rad_m: float
         size of the smoothing kernel in in-game meters (using gaussian_filter).
         Set to 0 to disable this.
+
+    out_filepath: None|str
+        Provide this to output the result to the specified folder.
     
     Rearth_km: float
         Earth radius in real-world km.
@@ -315,12 +319,13 @@ def get_CSL_height_maps(
 
     if cityname is None:
         cityname = f"long{long:07.3f}_lati{lati:+07.3f}_angle{angle_deg:05.1f}_scale{scale_w:.2f}+{scale_h:.2f}"
-        
-    outfilename = f"worldmap_{cityname}.png"
-    with open(outfilename, 'wb') as f:
-        writer = png.Writer(width=img_arr.shape[1], height=img_arr.shape[0], bitdepth=16, greyscale=True)
-        if verbose: print(f"Saving to {outfilename}")
-        writer.write(f, img_arr)
+
+    if out_filepath is not None:
+        outfilename = f"{out_filepath}worldmap_{cityname}.png"
+        with open(outfilename, 'wb') as f:
+            writer = png.Writer(width=img_arr.shape[1], height=img_arr.shape[0], bitdepth=16, greyscale=True)
+            if verbose: print(f"Saving to {outfilename}")
+            writer.write(f, img_arr)
     img_arr_orig = img_arr
 
 
@@ -370,12 +375,13 @@ def get_CSL_height_maps(
         print(f"\tSmoothing Kernel radius {smooth_shore_rad_pix:.2f} pixel (shore), {smooth_rad_pix:.2f} pixel (all)")
         
     img_arr = (ans / height_scale * 2**16).astype(np.uint16)
-    
-    outfilename = f"playable_{cityname}.png"
-    with open(outfilename, 'wb') as f:
-        writer = png.Writer(width=img_arr.shape[1], height=img_arr.shape[0], bitdepth=16, greyscale=True)
-        if verbose: print(f"Saving to {outfilename}")
-        writer.write(f, img_arr)
+
+    if out_filepath is not None:
+        outfilename = f"{out_filepath}playable_{cityname}.png"
+        with open(outfilename, 'wb') as f:
+            writer = png.Writer(width=img_arr.shape[1], height=img_arr.shape[0], bitdepth=16, greyscale=True)
+            if verbose: print(f"Saving to {outfilename}")
+            writer.write(f, img_arr)
 
     if verbose:
         print("\n\tAll Done.\n")
@@ -388,28 +394,30 @@ def get_CSL_height_maps(
 # In[7]:
 
 
-# example 1
-
-# download the relevant data from https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d_e.htm
-#    (or some other sources, I don't care)
-#    If you download from JAXA, you will need to register an account and read their terms of service
-#    after downloading, put them in the same folder as the script and supply the filenames here
-#    they will be used to interpolate the elevations in the respective areas of the image.
-#    if you see a patch of the image is constant at minimal height-1,
-#    then you haven't downloaded & added the data of that patch. Probably.
-tiffilenames = [
-    'raw/ALPSMLC30_N063W017_DSM.tif',
-    'raw/ALPSMLC30_N064W016_DSM.tif',
-    'raw/ALPSMLC30_N064W017_DSM.tif',
-]
-
-# Parameters explanation
-#  angle_deg is the degrees the map will be rotated
-#  map_scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
-#    (i.e. mapping real world 1.5*57.344km to game 57.344km)
-#    while stretching the heights to 1:1.2
-img_arr, coord = get_CSL_height_maps(
-    long=-16.000, lati=+64.185, angle_deg=30., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
+if __name__ == '__main__':
+    
+    # Example 1
+    
+    # download the relevant data from https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d_e.htm
+    #    (or some other sources, I don't care)
+    #    If you download from JAXA, you will need to register an account and read their terms of service
+    #    after downloading, put them in the ./raw/ folder, and supply the file path (incl. file name) here
+    #    they will be used to interpolate the elevations in the respective areas of the image.
+    #    if you see a patch of the image is constant at minimal height-1,
+    #    then you haven't downloaded & added the data of that patch. Probably.
+    tiffilenames = [
+        'raw/ALPSMLC30_N063W017_DSM.tif',
+        'raw/ALPSMLC30_N064W016_DSM.tif',
+        'raw/ALPSMLC30_N064W017_DSM.tif',
+    ]
+    
+    # Parameters explanation
+    #  angle_deg is the degrees the map will be rotated
+    #  map_scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
+    #    (i.e. mapping real world 1.5*57.344km to game 57.344km)
+    #    while stretching the heights to 1:1.2
+    img_arr, coord = get_CSL_height_maps(
+        long=-16.000, lati=+64.185, angle_deg=30., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
 
 
 # In[ ]:

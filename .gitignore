@@ -1,5 +1,7 @@
 bkp/
 temp/
+raw/*
+out/*
 *.tif
 *.tiff
 *.png
