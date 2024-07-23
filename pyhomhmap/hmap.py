@@ -198,6 +198,8 @@ class HMap:
         if height_scale is None:
             height_scale = np.max(self.data) + 1
 
+        self.normalize()
+
         # safety check
         if verbose:
             nbad_pixels = np.count_nonzero(self.data < self.z_seabed)
