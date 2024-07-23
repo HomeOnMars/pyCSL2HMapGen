@@ -122,7 +122,7 @@ class HMap:
 
 # Meta data
     Pixels shape  : {self.data.shape = } | {self._npix_xy = }
-    Map Widths    : x {self._map_width[0]:.2f},    y {self._map_width[1]:.2f},\
+    Map Widths    : NS/y {self._map_width[0]:.2f},    EW/x {self._map_width[1]:.2f},\
     with {len(self._map_width) = }
 
 # Height data insight
@@ -287,19 +287,19 @@ class HMap:
             for i in range(2)
         ])
         tick_vals = tuple([
-            tick_locs[0] / self._npix_xy[0] * self._map_width[0],
-            (1. - tick_locs[1] / self._npix_xy[1]) * self._map_width[1],
+            (1. - tick_locs[0] / self._npix_xy[0]) * self._map_width[0],
+                  tick_locs[1] / self._npix_xy[1]  * self._map_width[1],
         ])
         tick_labels = tuple([
             [f'{tick_val:.0f}' for tick_val in tick_vals[i]]
             for i in range(2)
         ])
-        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\nSE"
-        tick_labels[1][ 0] = f"NW\n{tick_labels[1][ 0]}"
-        tick_labels[1][-1] = f"{    tick_labels[1][-1]}\nSW"
-        ax.set_xticks(tick_locs[0])
-        ax.set_xticklabels(tick_labels[0])
-        ax.set_yticks(tick_locs[1])
-        ax.set_yticklabels(tick_labels[1])
+        tick_labels[0][ 0] = f"NW\n{tick_labels[0][ 0]}"
+        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\nSW"
+        tick_labels[1][-1] = f"{    tick_labels[1][-1]}\nSE"
+        ax.set_yticks(tick_locs[0])
+        ax.set_yticklabels(tick_labels[0])
+        ax.set_xticks(tick_locs[1])
+        ax.set_xticklabels(tick_labels[1])
 
         return fig, ax
