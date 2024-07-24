@@ -73,8 +73,7 @@ class HMap:
     def __init__(
         self,
         data : npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
-        # note: 57344 = 3.5*4*4096 is the CSL2 worldmap width
-        map_width : float|tuple[float, float],
+        map_width : float|tuple[float, float] = 3584.,    # = 14*256
         z_seabed  : float = 64.,
         z_sealvl  : float = 128.,
     ):
@@ -183,12 +182,15 @@ class HMap:
         ) * (height_scale / 2**bit_depth)
         
         if verbose: print(".", end='')
-        self.__init__(
-            data      = pixels,
-            map_width = map_width,
-            z_seabed  = z_seabed,
-            z_sealvl  = z_sealvl,
-        )
+
+        #self.__init__(pixels, map_width=map_width,
+        #              z_seabed=z_seabed, z_sealvl=z_sealvl,)
+        self.data = np.array(pixels, dtype=np.float64)
+        self._map_width = map_width
+        self.z_seabed   = z_seabed
+        self.z_sealvl   = z_sealvl
+        self.normalize()
+        
         
         if verbose:
             print(f" Done.\n\n{self.__str__()}")
@@ -197,54 +199,6 @@ class HMap:
             print(f"**  Warning: Unexpected {bit_depth = }")
         
         return self
-    
-
-
-    def load_csl_hmap(
-        self,
-        map_name     : None|str,
-        map_type     : str   = 'worldmap', # 'worldmap' or 'playable'
-        dir_path     : None|str = './out/',
-        height_scale : float = 4096.,
-        z_seabed     : float = 64.,
-        z_sealvl     : float = 128.,
-        verbose      : bool  = True,
-        **kwargs,
-    ) -> Self:
-        """Loading a Cities Skylines 2 Height Map.
-        
-        Parameters
-        ----------
-        map_name : str
-            hmap file has the name of
-            f"{dir_path}{map_type}_{map_name}.png"
-            
-        dir_path  : str
-            Input directory path (i.e. filepath prefix)
-
-        map_type  : 'worldmap' or 'playable'
-        ...
-        
-        """
-        if dir_path is None: dir_path = './'
-        if map_name  is None: map_name  = ''
-            
-        filename = f"{dir_path}{map_type}_{map_name}.png"
-
-        if   map_type in {'worldmap'}:
-            map_width = 57344.
-        elif map_type in {'playable'}:
-            map_width = 14336.
-
-        return self.load_png(
-            filename  = filename,
-            map_width = map_width,
-            height_scale = height_scale,
-            z_seabed  = z_seabed,
-            z_sealvl  = z_sealvl,
-            verbose   = verbose,
-            **kwargs,
-        )
     
 
 
