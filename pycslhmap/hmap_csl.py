@@ -87,6 +87,20 @@ class CSL2HMap(HMap):
                 will use the metadata in HMap
                 instead of the supplied parameters.
         """
+
+        # init
+        
+        if isinstance(data, HMap):
+            if use_data_meta:
+                z_seabed = data.z_seabed
+                z_sealvl = data.z_sealvl
+                if isinstance(data, CSL2HMap):
+                    map_type = data._map_type
+                    map_name = data.map_name
+                    height_scale = data.height_scale
+            data = data.data.copy()
+
+        
         # variables
 
         self._map_type    : str   = map_type
@@ -100,12 +114,6 @@ class CSL2HMap(HMap):
         
         # do things
         
-        if isinstance(data, HMap):
-            data = data.data
-            if use_data_meta:
-                z_seabed = data.z_seabed
-                z_sealvl = data.z_sealvl
-                
         map_width = get_csl2_map_width(map_type)
         
         super().__init__(
@@ -157,8 +165,6 @@ class CSL2HMap(HMap):
         """
 
 
-
-    
     def __str__(self):
         return self.__repr__()
 
@@ -211,8 +217,6 @@ class CSL2HMap(HMap):
 
 
 
-
-
     def save(
         self,
         dir_path     : str,
@@ -255,7 +259,6 @@ class CSL2HMap(HMap):
         )
 
 
-
     
     def plot(
         self,
@@ -268,4 +271,22 @@ class CSL2HMap(HMap):
         fig, ax = super().plot(**kwargs)
         ax.set_title(f"{self._map_type} {self.map_name} {ax.get_title()}")
         return fig, ax
+
+
+
+    def extract_playable(self) -> Self:
         
+        raise NotImplementedError
+
+        # make a copy
+        new_hmap = CSL2HMap(self)
+        # set things
+        new_hmap.data = new_hmap.data[
+            3*self._npix_8 : 5*self._npix_8,
+            3*self._npix_8 : 5*self._npix_8,
+        ]
+
+        # still need to resample- more code to come
+
+        return new_hmap
+    
