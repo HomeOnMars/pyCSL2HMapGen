@@ -150,7 +150,8 @@ class CSL2HMap(HMap):
         assert self._npix   == self.data.shape[0]
         assert self._npix   == self._npix_xy[1]
         assert self._npix_8 == self._npix_xy_8[1]
-
+        assert self._npix   == 4096
+        
         return self
 
 
