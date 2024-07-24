@@ -16,6 +16,7 @@ from typing import Self
 import numpy as np
 from numpy import pi
 from numpy import typing as npt
+import matplotlib as mpl
 
 
 
@@ -252,3 +253,19 @@ class CSL2HMap(HMap):
             verbose = verbose,
             **kwargs,
         )
+
+
+
+    
+    def plot(
+        self,
+        **kwargs,
+    ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
+        """Return a plot of the data.
+
+        See HMap.plot() docs for details.
+        """
+        fig, ax = super().plot(**kwargs)
+        ax.set_title(f"{self._map_type} {self.map_name} {ax.get_title()}")
+        return fig, ax
+        

@@ -288,11 +288,18 @@ class HMap:
     
     def plot(
         self,
+        fig : None|mpl.figure.Figure = None,
+        ax  : None|mpl.axes.Axes     = None,
         figsize : tuple[int, int] = (8, 6),
-        norm : None|str|mpl.colors.Normalize = 'default',
+        norm    : None|str|mpl.colors.Normalize = 'default',
+        add_cbar: bool = True,
         z_sealvl: None|float = None,
+        **kwargs,
     ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
         """Return a plot of the data.
+
+        fig, ax:
+            if either are None, will generate new figure.
         """
 
         # init
@@ -302,14 +309,16 @@ class HMap:
             norm = mpl.colors.Normalize(vmin=self.z_seabed - z_sealvl)
 
         # plot things
-        fig, ax = plt.subplots(figsize=figsize)
-        cax  = ax.imshow(self.data - z_sealvl, norm=norm)
-        cmap = fig.colorbar(cax)
+        if fig is None or ax is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        cax  = ax.imshow(self.data - z_sealvl, norm=norm, **kwargs)
+        if add_cbar:
+            cmap = fig.colorbar(cax)
+            cmap.set_label('Meters above sea level')
         ax.set_title(
             "Height Map\n" +
             f"(Seabed: {self.z_seabed:.0f}m above zero point; " +
             f"{z_sealvl - self.z_seabed:.0f}m below sea)")
-        cmap.set_label('Meters above sea level')
 
         # update tick labels
         tick_locs = tuple([
