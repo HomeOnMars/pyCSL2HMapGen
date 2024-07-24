@@ -150,6 +150,8 @@ class CSL2HMap(HMap):
     def __repr__(self):
         return f"""CSL2 {self._map_type} {self.map_name} {super().__repr__()}
 # CSL2-specific data
+    Map type      : {self._map_type    = }
+    Map name      : {self.map_name     = }
     Height scale  : {self.height_scale = :.2f}
         """
 
@@ -161,11 +163,11 @@ class CSL2HMap(HMap):
 
 
 
-    def load_csl_hmap(
+    def load(
         self,
-        map_name     : str,
-        map_type     : str,
-        dir_path     : str   = '',
+        dir_path     : str = '',
+        map_name     : str = '',
+        map_type     : str = 'playable',
         height_scale : float = 4096.,
         z_seabed     : float = 64.,
         z_sealvl     : float = 128.,
@@ -203,5 +205,50 @@ class CSL2HMap(HMap):
             z_seabed  = z_seabed,
             z_sealvl  = z_sealvl,
             verbose   = verbose,
+            **kwargs,
+        )
+
+
+
+
+
+    def save(
+        self,
+        dir_path     : str,
+        map_name     : None|str = None,
+        map_type     : None|str = None,
+        height_scale : None|float = None,
+        compression  : int = 9,    # maximum compression
+        verbose      : bool = True,
+        **kwargs,
+    ) -> Self:
+        """Save to Cities Skylines 2 compatible Height Map.
+
+        
+        Parameters
+        ----------
+        map_name : None|str
+            hmap file has the name of
+            f"{dir_path}{map_type}_{map_name}.png"
+            
+        dir_path  : str
+            Input directory path (i.e. filepath prefix)
+
+        map_type  : None|{'worldmap', 'playable'}
+        ...
+        """
+
+        if map_name is None: map_name = self.map_name
+        if map_type is None: map_type = self._map_type
+        if height_scale is None: height_scale = self.height_scale
+        
+        filename = f"{dir_path}{map_type}_{map_name}.png"
+        
+        return self.save_png(
+            filename     = filename,
+            bit_depth    = 16,
+            height_scale = height_scale,
+            compression  = compression,
+            verbose = verbose,
             **kwargs,
         )

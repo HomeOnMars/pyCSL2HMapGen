@@ -285,44 +285,6 @@ class HMap:
         return self
 
 
-
-    def save_csl_hmap(
-        self,
-        map_name     : None|str,
-        map_type     : str   = 'worldmap', # 'worldmap' or 'playable'
-        dir_path     : None|str = './out/',
-        height_scale : None|float = 4096.,
-        compression  : int = 9,    # maximum compression
-        verbose      : bool = True,
-        **kwargs,
-    ) -> Self:
-        """Save to Cities Skylines 2 compatible Height Map.
-
-        
-        Parameters
-        ----------
-        map_name : str
-            hmap file has the name of
-            f"{dir_path}{map_type}_{map_name}.png"
-            
-        dir_path  : str
-            Input directory path (i.e. filepath prefix)
-
-        map_type  : 'worldmap' or 'playable'
-        ...
-        """
-        filename = f"{dir_path}{map_type}_{map_name}.png"
-        bit_depth = 16
-        return self.save_png(
-            filename     = filename,
-            bit_depth    = 16,
-            height_scale = height_scale,
-            compression  = compression,
-            verbose = verbose,
-            **kwargs,
-        )
-
-
     
     def plot(
         self,
