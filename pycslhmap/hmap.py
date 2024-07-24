@@ -1,22 +1,20 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 """A class to handle height maps.
 
 Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
-# dependencies: numpy, scipy, pypng
+
+# Dependencies
+
 from typing import Self
 import numpy as np
 from numpy import pi
 from numpy import typing as npt
-#from scipy.interpolate import RegularGridInterpolator
-from scipy.ndimage import map_coordinates #, distance_transform_edt, gaussian_filter
+from scipy.ndimage import map_coordinates
 import png
 import matplotlib as mpl
 from matplotlib import pyplot as plt
@@ -25,31 +23,19 @@ from matplotlib import pyplot as plt
 
 
 class HMap:
-    """Height Map
+    """Generic Height Map.
 
     Instance Variables
     ------------------
+    
+    Public:
+    
     data       : (self._npix_xy)-shaped numpy array (np.float64)
         Contains height map data in meters.
         MUST be:
             1) 2D,
             2) postive in every pixel,
             3) # of pixels per row and per column being a multiple of 8.
-
-    _ndim      : int = 2
-        dimensions. Should always be 2.
-
-    _npix_xy   : tuple[int, int]
-        Data shape. i.e. number of pixel in each dim.
-
-    _npix_xy_8, _npix_xy_4 : tuple[int, int]
-        == int(self._npix_xy / 8)
-        Cached for fast access.
-        
-    _map_width : tuple[float, float]
-        map width in meters (i.e. whatever unit self.data is in).
-        It's 57344. for CSL2 world map, and 14336. for CSL2 playable area.
-        (Because 57344 = 3.5*4*4096)
 
     z_seabed : float
         Seabed height in meters. Must be positive.
@@ -60,6 +46,25 @@ class HMap:
         Defines the height of the ocean.
         Every pixel in self.data below self.z_sealvl is considered in the sea.
 
+
+    Private:
+        
+    _ndim      : int = 2
+        dimensions. Should always be 2.
+
+    _npix_xy   : tuple[int, int]
+        Data shape. i.e. number of pixel in each dim.
+
+    _npix_xy_8 : tuple[int, int]
+        == int(self._npix_xy / 8)
+        Cached for fast access.
+        
+    _map_width : tuple[float, float]
+        map width in meters (i.e. whatever unit self.data is in).
+        It's 57344. for CSL2 world map, and 14336. for CSL2 playable area.
+        (Because 57344 = 3.5*4*4096)
+
+
         
     see self.__init__() and self.normalize() for details.
     ---------------------------------------------------------------------------
@@ -67,38 +72,40 @@ class HMap:
 
     def __init__(
         self,
-        data : npt.ArrayLike = np.zeros((4096, 4096), dtype=np.float64),
+        data : npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
         # note: 57344 = 3.5*4*4096 is the CSL2 worldmap width
-        map_width : float|tuple[float, float] = 57344.,
-        z_seabed : float = 64.,
-        z_sealvl : float = 128.,
+        map_width : float|tuple[float, float],
+        z_seabed  : float = 64.,
+        z_sealvl  : float = 128.,
     ):
         # variables
         
         self.data  : npt.NDArray[np.float64] = np.array(data, dtype=np.float64)
         # note: will normalize float into tuple of floats later
         self._map_width : tuple[float, float] = map_width
-        self.z_seabed = z_seabed
-        self.z_sealvl = z_sealvl
+        self.z_seabed   : float = z_seabed
+        self.z_sealvl   : float = z_sealvl
+        
+        # vars yet to be set
+        self._ndim      : int             = 2
+        self._npix_xy   : tuple[int, int] = (0, 0)
+        self._npix_xy_8 : tuple[int, int] = (0, 0)
 
         
         # do things
-        
         self.normalize()
 
 
     
     def normalize(self) -> Self:
+        """Resetting parameters and do safety checks."""
         
         # variables
         
         # no of pixel: defining map resolution
-        self._npix_xy   : tuple[int, int] = self.data.shape
-        self._npix_xy_8 : tuple[int, int] = tuple([
-            int(npix_i/8) for npix_i   in self._npix_xy  ])
-        self._npix_xy_4 : tuple[int, int] = tuple([
-            npix_i_8 * 2  for npix_i_8 in self._npix_xy_8])
-        self._ndim  : int = len(self._npix_xy)
+        self._npix_xy   = self.data.shape
+        self._npix_xy_8 = tuple([int(npix_i/8) for npix_i in self._npix_xy])
+        self._ndim      = len(self._npix_xy)
 
         try:
             len(self._map_width)
@@ -113,7 +120,6 @@ class HMap:
         assert self.z_sealvl >= 0
         
         return self
-
 
 
     
@@ -135,12 +141,10 @@ class HMap:
 
 
 
-    
     def __str__(self):
         return self.__repr__()
 
     
-
     
     def load_png(
         self,
@@ -149,7 +153,7 @@ class HMap:
         height_scale : float = 4096.,
         z_seabed     : float = 64.,
         z_sealvl     : float = 128.,
-        verbose      : bool = True,
+        verbose      : bool  = True,
     ) -> Self:
         """Load height map from a png file.
         
@@ -193,15 +197,14 @@ class HMap:
             print(f"**  Warning: Unexpected {bit_depth = }")
         
         return self
-
     
 
 
     def load_csl_hmap(
         self,
-        cityname     : None|str,
-        dir_path     : None|str = './out/',
+        map_name     : None|str,
         map_type     : str   = 'worldmap', # 'worldmap' or 'playable'
+        dir_path     : None|str = './out/',
         height_scale : float = 4096.,
         z_seabed     : float = 64.,
         z_sealvl     : float = 128.,
@@ -212,9 +215,9 @@ class HMap:
         
         Parameters
         ----------
-        cityname : str
+        map_name : str
             hmap file has the name of
-            f"{dir_path}{map_type}_{cityname}.png"
+            f"{dir_path}{map_type}_{map_name}.png"
             
         dir_path  : str
             Input directory path (i.e. filepath prefix)
@@ -224,9 +227,9 @@ class HMap:
         
         """
         if dir_path is None: dir_path = './'
-        if cityname  is None: cityname  = ''
+        if map_name  is None: map_name  = ''
             
-        filename = f"{dir_path}{map_type}_{cityname}.png"
+        filename = f"{dir_path}{map_type}_{map_name}.png"
 
         if   map_type in {'worldmap'}:
             map_width = 57344.
@@ -242,7 +245,6 @@ class HMap:
             verbose   = verbose,
             **kwargs,
         )
-
     
 
 
@@ -267,20 +269,20 @@ class HMap:
             noverflowed = np.count_nonzero(self.data > height_scale)
             if nbad_pixels:
                 print(
-                    f"\n**  Warning: Data have {nbad_pixels} " +
-                    f"({nbad_pixels/self.data.size*100:6.1f} %) " +
-                    "bad pixels where data < seabed height.\n" +
-                    "These pixels will be replaced by seabed height " +
-                    f"{self.z_seabed = }"
+                    f"\n**  Warning: Data have {nbad_pixels} "
+                    + f"({nbad_pixels/self.data.size*100:6.1f} %) "
+                    + "bad pixels where data < seabed height.\n"
+                    + "These pixels will be replaced by seabed height "
+                    + f"{self.z_seabed = }"
                 )
             if noverflowed:
                 print(
-                    f"\n**  Warning: Data have {noverflowed} " +
-                    f"({noverflowed/self.data.size*100:6.1f} %) " +
-                    f"overflowed pixels where data > height scale " +
-                    f"{height_scale = }.\n" +
-                    "These pixels will be replaced by maximum height " +
-                    f"{(2**bit_depth - 1) / 2**bit_depth * height_scale = }"
+                    f"\n**  Warning: Data have {noverflowed} "
+                    + f"({noverflowed/self.data.size*100:6.1f} %) "
+                    + f"overflowed pixels where data > height scale "
+                    + f"{height_scale = }.\n"
+                    + "These pixels will be replaced by maximum height "
+                    + f"{(2**bit_depth - 1) / 2**bit_depth * height_scale = }"
                 )
             if nbad_pixels or noverflowed:
                 print(self)
@@ -330,12 +332,11 @@ class HMap:
 
 
 
-
     def save_csl_hmap(
         self,
-        cityname     : None|str,
-        dir_path     : None|str = './out/',
+        map_name     : None|str,
         map_type     : str   = 'worldmap', # 'worldmap' or 'playable'
+        dir_path     : None|str = './out/',
         height_scale : None|float = 4096.,
         compression  : int = 9,    # maximum compression
         verbose      : bool = True,
@@ -346,9 +347,9 @@ class HMap:
         
         Parameters
         ----------
-        cityname : str
+        map_name : str
             hmap file has the name of
-            f"{dir_path}{map_type}_{cityname}.png"
+            f"{dir_path}{map_type}_{map_name}.png"
             
         dir_path  : str
             Input directory path (i.e. filepath prefix)
@@ -356,7 +357,7 @@ class HMap:
         map_type  : 'worldmap' or 'playable'
         ...
         """
-        filename = f"{dir_path}{map_type}_{cityname}.png"
+        filename = f"{dir_path}{map_type}_{map_name}.png"
         bit_depth = 16
         return self.save_png(
             filename     = filename,
@@ -367,7 +368,6 @@ class HMap:
             **kwargs,
         )
 
-    
 
     
     def plot(

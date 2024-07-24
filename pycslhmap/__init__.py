@@ -8,4 +8,5 @@ Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
+from .hmap import HMap
 from .import_hmap import get_CSL_height_maps
