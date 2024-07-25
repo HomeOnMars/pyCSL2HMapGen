@@ -127,7 +127,7 @@ class CSL2HMap(HMap):
 
 
     
-    def normalize(self) -> Self:
+    def normalize(self, verbose:bool=True) -> Self:
         """Resetting parameters and do safety checks."""
 
         super().normalize()
@@ -311,4 +311,10 @@ class CSL2HMap(HMap):
         # still need to resample- more code to come
 
         return new_hmap
+
+        
     
+
+    #-------------------------------------------------------------------------#
+    #    End
+    #-------------------------------------------------------------------------#

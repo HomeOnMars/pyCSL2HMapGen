@@ -114,7 +114,7 @@ class HMap:
 
 
     
-    def normalize(self) -> Self:
+    def normalize(self, verbose:bool=True) -> Self:
         """Resetting parameters and do safety checks."""
         
         # variables
@@ -146,7 +146,7 @@ class HMap:
 # Meta data
     Pixels shape  : {self.data.shape = } | {self._npix_xy = }
     Map Widths    : NS/y {self._map_width[0]:.2f},\
-    EW/x {self._map_width[1]:.2f},\
+    WE/x {self._map_width[1]:.2f},\
     with {len(self._map_width) = }
 
 # Height data insight
@@ -168,14 +168,22 @@ class HMap:
     #-------------------------------------------------------------------------#
 
     def copy(self) -> Self:
+        """Returns a new copy."""
         return HMap(self)
 
     def copy_zeros_like(self) -> Self:
+        """Returns a new obj with same meta data as self, but zeros in data."""
         # *** optimization not included.
         ans = self.copy()
         ans.data = np.zeros_like(self.data)
         return ans
-        
+
+    def copy_meta_only(self) -> Self:
+        """Returns a new obj with same meta data as self, but None in data."""
+        # *** optimization not included.
+        ans = self.copy()
+        ans.data = np.zeros((8, 8), dtype=np.float64)
+        return ans
     
 
     #-------------------------------------------------------------------------#
@@ -337,8 +345,11 @@ class HMap:
     ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
         """Return a plot of the data.
 
+        Parameters
+        ----------
         fig, ax:
             if either are None, will generate new figure.
+        ...
         """
 
         # init
@@ -390,6 +401,82 @@ class HMap:
 
 
 
-    def resample(self, **kwargs) -> Self:
+    def resample(
+        self,
+        nslim_in_ind : tuple[float, float], #= (0., 255.),
+        welim_in_ind : tuple[float, float], #= (0., 255.),
+        new_npix_xy  : tuple[int, int], #= (256, 256),
+        interp_order : int = 3,
+        z_seabed     : None|float = None,
+        verbose      : bool = True,
+        **kwargs,
+    ) -> Self:
+        """Return a new obj with resampled HMap.
         
-        raise NotImplementedError
+        I.e. with different resolution/bounrdary/etc.
+        
+        Using scipy.ndimage.map_coordinates().
+        Extra keywords will passed onto them.
+
+
+        Parameters
+        ----------
+        nslim_in_ind, welim_in_ind: tuple[float, float]
+            NS/x and WE/y limits in index space.
+            Must be in ascending order.
+            e.g. nslim_in_ind = [128, 255], welim_in_ind = [0, 127]
+                will select the left bottom part (1/4) of the image
+                if the original data is in shape of (256, 256).
+
+        new_npix_xy: tuple[int, int]
+            new HMap resolution in x and y.
+        
+        interp_order: int
+            The order of the spline interpolation,
+            used by scipy.ndimage.map_coordinates().
+
+        z_seabed: None|float
+            min val of the hmap. Used when extrapolating.
+            if None, will use the value stored in self.
+        """
+
+        # init
+        z_seabed = self.z_seabed if z_seabed is None else z_seabed
+
+        nslim_npix = abs(nslim_in_ind[1] - nslim_in_ind[0]) + 1.    # x width
+        welim_npix = abs(welim_in_ind[1] - welim_in_ind[0]) + 1.    # y width
+        # get coord
+        edges_in_ind = [
+            0.5 - nslim_npix / new_npix_xy[0] / 2.,
+            0.5 - welim_npix / new_npix_xy[1] / 2.,
+        ]
+        if nslim_in_ind[0] > nslim_in_ind[1]:
+            edges_in_ind[0] *= -1
+        if welim_in_ind[0] > welim_in_ind[1]:
+            edges_in_ind[1] *= -1
+        x_coord  = np.linspace(
+            nslim_in_ind[0] - edges_in_ind[0],
+            nslim_in_ind[1] + edges_in_ind[0],
+            new_npix_xy[0], endpoint=True)
+        y_coord  = np.linspace(
+            welim_in_ind[0] - edges_in_ind[1],
+            welim_in_ind[1] + edges_in_ind[1],
+            new_npix_xy[1], endpoint=True)
+        
+        # do interp
+        xy_coords= np.stack(
+            np.meshgrid(x_coord, y_coord, indexing='ij'), axis=0)
+        ans = HMap(self.copy_meta_only())
+        ans.data = map_coordinates(
+            self.data, xy_coords, order=interp_order, cval=z_seabed, **kwargs)
+        ans._map_width = (
+            self._map_width[0] * nslim_npix / self._npix_xy[0],
+            self._map_width[1] * welim_npix / self._npix_xy[1],
+        )
+        return ans
+        
+    
+
+    #-------------------------------------------------------------------------#
+    #    End
+    #-------------------------------------------------------------------------#
