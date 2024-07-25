@@ -313,7 +313,7 @@ class CSL2HMap(HMap):
         )
         
         return CSL2HMap(
-            ans.data,
+            ans,
             map_type ='playable',
             map_name = self.map_name,
             height_scale = self.height_scale,
