@@ -72,7 +72,7 @@ class CSL2HMap(HMap):
 
     def __init__(
         self,
-        data : HMap|npt.ArrayLike = np.zeros((4096, 4096), dtype=np.float64),
+        data : Self|HMap|npt.ArrayLike = np.zeros((4096, 4096), dtype=np.float64),
         map_type     : str   = 'playable', # 'worldmap' or 'playable'
         map_name     : str   = '',
         height_scale : float = 4096.,
@@ -83,8 +83,8 @@ class CSL2HMap(HMap):
         """Init.
 
         use_data_meta : bool
-            If true and data is of type HMap,
-                will use the metadata in HMap
+            If true and data is of type Self or HMap,
+                will copy the metadata in it
                 instead of the supplied parameters.
         """
 
@@ -168,6 +168,21 @@ class CSL2HMap(HMap):
 
     def __str__(self):
         return self.__repr__()
+
+    
+
+    #-------------------------------------------------------------------------#
+    #    Meta
+    #-------------------------------------------------------------------------#
+
+    def copy(self) -> Self:
+        return CSL2HMap(self)
+        
+    
+
+    #-------------------------------------------------------------------------#
+    #    I/O
+    #-------------------------------------------------------------------------#
 
 
 

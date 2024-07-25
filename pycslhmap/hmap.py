@@ -72,11 +72,29 @@ class HMap:
 
     def __init__(
         self,
-        data : npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
-        map_width : float|tuple[float, float] = 3584.,    # = 14*256
+        data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
+        map_width : float|tuple[float, float] = 3584.,   # = 14*256
         z_seabed  : float = 64.,
         z_sealvl  : float = 128.,
+        use_data_meta: bool  = True,
     ):
+        """Init.
+
+        use_data_meta : bool
+            If true and data is of type Self or HMap,
+                will copy the metadata in it
+                instead of the supplied parameters.
+        """
+        
+        # init
+        if isinstance(data, HMap):
+            if use_data_meta:
+                map_width = data._map_width
+                z_seabed  = data.z_seabed
+                z_sealvl  = data.z_sealvl
+            data = data.data.copy()
+            
+                
         # variables
         
         self.data  : npt.NDArray[np.float64] = np.array(data, dtype=np.float64)
@@ -142,6 +160,21 @@ class HMap:
 
     def __str__(self):
         return self.__repr__()
+
+    
+
+    #-------------------------------------------------------------------------#
+    #    Meta
+    #-------------------------------------------------------------------------#
+
+    def copy(self) -> Self:
+        return HMap(self)
+        
+    
+
+    #-------------------------------------------------------------------------#
+    #    I/O
+    #-------------------------------------------------------------------------#
 
     
     
