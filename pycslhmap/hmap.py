@@ -487,7 +487,7 @@ class HMap:
         
         Inspired by Sebastian Lague's Erosion code (
             See https://github.com/SebLague/Hydraulic-Erosion
-        ) who was in turn inspired by Hans Theobald Beyer's Bachelor’s Thesis
+        ) who was in turn inspired by Hans Theobald Beyer's Bachelor's Thesis
             'Implementation of a method for hydraulic erosion'.
         """
         
