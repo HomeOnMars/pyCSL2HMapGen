@@ -479,5 +479,22 @@ class HMap:
     
 
     #-------------------------------------------------------------------------#
+    #    Erosion
+    #-------------------------------------------------------------------------#
+
+    def erode(self, **kwargs) -> Self:
+        """Do Erosion!
+        
+        Inspired by Sebastian Lague's Erosion code (
+            See https://github.com/SebLague/Hydraulic-Erosion
+        ) who was in turn inspired by Hans Theobald Beyer's Bachelor’s Thesis
+            'Implementation of a method for hydraulic erosion'.
+        """
+        
+        raise NotImplementedError
+        
+    
+
+    #-------------------------------------------------------------------------#
     #    End
     #-------------------------------------------------------------------------#
