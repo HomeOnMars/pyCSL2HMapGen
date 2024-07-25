@@ -20,6 +20,10 @@ import matplotlib as mpl
 
 
 
+# constants
+NPIX_CSL2 : int = 4096
+
+
 
 def get_csl2_map_width(map_type: str) -> float:
     """Return map width in meters."""
@@ -72,7 +76,7 @@ class CSL2HMap(HMap):
 
     def __init__(
         self,
-        data : Self|HMap|npt.ArrayLike = np.zeros((4096, 4096), dtype=np.float64),
+        data : Self|HMap|npt.ArrayLike = np.zeros((NPIX_CSL2, NPIX_CSL2), dtype=np.float64),
         map_type     : str   = 'playable', # 'worldmap' or 'playable'
         map_name     : str   = '',
         height_scale : float = 4096.,
@@ -150,7 +154,7 @@ class CSL2HMap(HMap):
         assert self._npix   == self.data.shape[0]
         assert self._npix   == self._npix_xy[1]
         assert self._npix_8 == self._npix_xy_8[1]
-        assert self._npix   == 4096
+        assert self._npix   == NPIX_CSL2
         
         return self
 
@@ -297,21 +301,24 @@ class CSL2HMap(HMap):
     
 
     def extract_playable(self) -> Self:
+        """Extract playable area from world map."""
+
+        # safety check
+        assert self._map_type == 'worldmap'
+
+        ans = self.resample(
+            nslim_in_ind=(3*self._npix_8, 5*self._npix_8-1),
+            welim_in_ind=(3*self._npix_8, 5*self._npix_8-1),
+            new_npix_xy=(NPIX_CSL2, NPIX_CSL2),
+        )
         
-        raise NotImplementedError
-
-        # make a copy
-        new_hmap = CSL2HMap(self)
-        # set things
-        new_hmap.data = new_hmap.data[
-            3*self._npix_8 : 5*self._npix_8,
-            3*self._npix_8 : 5*self._npix_8,
-        ]
-
-        # still need to resample- more code to come
-
-        return new_hmap
-
+        return CSL2HMap(
+            ans.data,
+            map_type ='playable',
+            map_name = self.map_name,
+            height_scale = self.height_scale,
+            use_data_meta= True,
+        )
         
     
 
