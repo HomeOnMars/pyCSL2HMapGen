@@ -21,7 +21,9 @@ import matplotlib as mpl
 
 
 # constants
-NPIX_CSL2 : int = 4096
+NPIX_CSL2   : int = 4096
+NPIX_4_CSL2 : int = int(NPIX_CSL2/4)
+assert NPIX_4_CSL2 * 4 == NPIX_CSL2
 
 
 
@@ -300,7 +302,7 @@ class CSL2HMap(HMap):
 
     
 
-    def extract_playable(self) -> Self:
+    def extract_playable(self, **kwargs) -> Self:
         """Extract playable area from world map."""
 
         # safety check
@@ -309,7 +311,7 @@ class CSL2HMap(HMap):
         ans = self.resample(
             nslim_in_ind=(3*self._npix_8, 5*self._npix_8-1),
             welim_in_ind=(3*self._npix_8, 5*self._npix_8-1),
-            new_npix_xy=(NPIX_CSL2, NPIX_CSL2),
+            new_npix_xy=(NPIX_CSL2, NPIX_CSL2),  **kwargs,
         )
         
         return CSL2HMap(
@@ -319,6 +321,31 @@ class CSL2HMap(HMap):
             height_scale = self.height_scale,
             use_data_meta= True,
         )
+
+
+
+    def insert_playable(self, playable_hmap: Self, **kwargs) -> Self:
+        """Insert playable area back into the worldmap.
+
+        A copy will be made.
+        """
+        
+        # safety check
+        assert self._map_type == 'worldmap'
+
+        res = playable_hmap.resample(
+            nslim_in_ind=(0, self._npix-1),
+            welim_in_ind=(0, self._npix-1),
+            new_npix_xy=(self._npix_8*2, self._npix_8*2), **kwargs,
+        )
+
+        ans = self.copy()
+        ans.data[
+            3*self._npix_8 : 5*self._npix_8,
+            3*self._npix_8 : 5*self._npix_8
+        ] = res.data
+        
+        return ans
         
     
 
