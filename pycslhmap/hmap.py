@@ -169,6 +169,12 @@ class HMap:
 
     def copy(self) -> Self:
         return HMap(self)
+
+    def copy_zeros_like(self) -> Self:
+        # *** optimization not included.
+        ans = self.copy()
+        ans.data = np.zeros_like(self.data)
+        return ans
         
     
 
@@ -367,7 +373,7 @@ class HMap:
             for i in range(2)
         ])
         tick_labels[0][ 0] = f"NW\n{tick_labels[0][ 0]}"
-        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\nSW     "
+        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\n\n\nSW     "
         tick_labels[1][-1] = f"{    tick_labels[1][-1]}\nSE"
         ax.set_yticks(tick_locs[0])
         ax.set_yticklabels(tick_labels[0])
