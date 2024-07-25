@@ -287,8 +287,14 @@ class CSL2HMap(HMap):
         fig, ax = super().plot(**kwargs)
         ax.set_title(f"{self._map_type} {self.map_name} {ax.get_title()}")
         return fig, ax
+        
+    
 
+    #-------------------------------------------------------------------------#
+    #    Resampling
+    #-------------------------------------------------------------------------#
 
+    
 
     def extract_playable(self) -> Self:
         

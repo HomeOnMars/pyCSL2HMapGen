@@ -355,19 +355,19 @@ class HMap:
 
         # update tick labels
         tick_locs = tuple([
-            np.linspace(0, self._npix_xy[i], 8, dtype=np.int64)
+            np.linspace(0, self._npix_xy[i], 9, dtype=np.int64)
             for i in range(2)
         ])
         tick_vals = tuple([
-            (1. - tick_locs[0] / self._npix_xy[0]) * self._map_width[0],
-                  tick_locs[1] / self._npix_xy[1]  * self._map_width[1],
+            (0.5 - tick_locs[0] / self._npix_xy[0]      ) * self._map_width[0],
+            (      tick_locs[1] / self._npix_xy[1] - 0.5) * self._map_width[1],
         ])
         tick_labels = tuple([
             [f'{tick_val:.0f}' for tick_val in tick_vals[i]]
             for i in range(2)
         ])
         tick_labels[0][ 0] = f"NW\n{tick_labels[0][ 0]}"
-        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\nSW"
+        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\nSW     "
         tick_labels[1][-1] = f"{    tick_labels[1][-1]}\nSE"
         ax.set_yticks(tick_locs[0])
         ax.set_yticklabels(tick_labels[0])
@@ -375,3 +375,15 @@ class HMap:
         ax.set_xticklabels(tick_labels[1])
 
         return fig, ax
+        
+    
+
+    #-------------------------------------------------------------------------#
+    #    Resampling
+    #-------------------------------------------------------------------------#
+
+
+
+    def resample(self, **kwargs) -> Self:
+        
+        raise NotImplementedError
