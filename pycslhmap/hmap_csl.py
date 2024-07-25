@@ -342,7 +342,7 @@ class CSL2HMap(HMap):
         ans = self.copy()
         ans.data[
             3*self._npix_8 : 5*self._npix_8,
-            3*self._npix_8 : 5*self._npix_8
+            3*self._npix_8 : 5*self._npix_8,
         ] = res.data
         
         return ans

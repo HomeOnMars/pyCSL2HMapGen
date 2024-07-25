@@ -422,7 +422,7 @@ class HMap:
         Parameters
         ----------
         nslim_in_ind, welim_in_ind: tuple[float, float]
-            NS/x and WE/y limits in index space.
+            NS/x and WE/y limits in the index space.
             Must be in ascending order.
             e.g. nslim_in_ind = [128, 255], welim_in_ind = [0, 127]
                 will select the left bottom part (1/4) of the image
