@@ -473,6 +473,7 @@ class HMap:
             self._map_width[0] * nslim_npix / self._npix_xy[0],
             self._map_width[1] * welim_npix / self._npix_xy[1],
         )
+        ans.normalize()
         return ans
         
     
