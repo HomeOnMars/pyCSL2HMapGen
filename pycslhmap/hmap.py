@@ -395,9 +395,9 @@ class HMap:
 
     def resample(
         self,
-        nslim_in_ind : tuple[float, float], #= (0., 255.),
-        welim_in_ind : tuple[float, float], #= (0., 255.),
         new_npix_xy  : tuple[int, int], #= (256, 256),
+        nslim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
+        welim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
         interp_order : int = 3,
         z_seabed     : None|float = None,
         verbose      : bool = True,
@@ -414,11 +414,14 @@ class HMap:
         Parameters
         ----------
         nslim_in_ind, welim_in_ind: tuple[float, float]
-            NS/x and WE/y limits in the index space.
-            Must be in ascending order.
-            e.g. nslim_in_ind = [128, 255], welim_in_ind = [0, 127]
+            NS/x and WE/y limits in the index space: (Begin, End)
+            End not inclusive.
+            e.g. nslim_in_ind = [128, 256], welim_in_ind = [0, 128]
                 will select the left bottom part (1/4) of the image
                 if the original data is in shape of (256, 256).
+                i.e. elements with index of [128:256, 0:128]
+            Do NOT Supply negative number (won't work).
+            if None, will use (0, self._npix_xy[0]) or (0, self._npix_xy[1]).
 
         new_npix_xy: tuple[int, int]
             new HMap resolution in x and y.
@@ -433,26 +436,28 @@ class HMap:
         """
 
         # init
-        z_seabed = self.z_seabed if z_seabed is None else z_seabed
+        if z_seabed     is None: z_seabed     = self.z_seabed
+        if nslim_in_ind is None: nslim_in_ind = (0, self._npix_xy[0])
+        if welim_in_ind is None: welim_in_ind = (0, self._npix_xy[1])
 
-        nslim_npix = abs(nslim_in_ind[1] - nslim_in_ind[0]) + 1.    # x width
-        welim_npix = abs(welim_in_ind[1] - welim_in_ind[0]) + 1.    # y width
+        nslim_npix = abs(nslim_in_ind[1] - nslim_in_ind[0])    # x width
+        welim_npix = abs(welim_in_ind[1] - welim_in_ind[0])    # y width
         # get coord
         edges_in_ind = [
-            0.5 - nslim_npix / new_npix_xy[0] / 2.,
-            0.5 - welim_npix / new_npix_xy[1] / 2.,
+            nslim_npix / new_npix_xy[0] / 2.,
+            welim_npix / new_npix_xy[1] / 2.,
         ]
         if nslim_in_ind[0] > nslim_in_ind[1]:
             edges_in_ind[0] *= -1
         if welim_in_ind[0] > welim_in_ind[1]:
             edges_in_ind[1] *= -1
         x_coord  = np.linspace(
-            nslim_in_ind[0] - edges_in_ind[0],
-            nslim_in_ind[1] + edges_in_ind[0],
+            nslim_in_ind[0] - 0.5 + edges_in_ind[0],
+            nslim_in_ind[1] - 0.5 - edges_in_ind[0],
             new_npix_xy[0], endpoint=True)
         y_coord  = np.linspace(
-            welim_in_ind[0] - edges_in_ind[1],
-            welim_in_ind[1] + edges_in_ind[1],
+            welim_in_ind[0] - 0.5 + edges_in_ind[1],
+            welim_in_ind[1] - 0.5 - edges_in_ind[1],
             new_npix_xy[1], endpoint=True)
         
         # do interp
@@ -474,6 +479,8 @@ class HMap:
     #    Erosion
     #-------------------------------------------------------------------------#
 
+
+    
     def erode(self, **kwargs) -> Self:
         """Do Erosion!
         

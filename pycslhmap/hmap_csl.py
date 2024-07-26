@@ -309,8 +309,8 @@ class CSL2HMap(HMap):
         assert self._map_type == 'worldmap'
 
         ans = self.resample(
-            nslim_in_ind=(3*self._npix_8, 5*self._npix_8-1),
-            welim_in_ind=(3*self._npix_8, 5*self._npix_8-1),
+            nslim_in_ind=(3*self._npix_8, 5*self._npix_8),
+            welim_in_ind=(3*self._npix_8, 5*self._npix_8),
             new_npix_xy=(NPIX_CSL2, NPIX_CSL2),  **kwargs,
         )
         
@@ -334,8 +334,8 @@ class CSL2HMap(HMap):
         assert self._map_type == 'worldmap'
 
         res = playable_hmap.resample(
-            nslim_in_ind=(0, self._npix-1),
-            welim_in_ind=(0, self._npix-1),
+            nslim_in_ind=(0, self._npix),
+            welim_in_ind=(0, self._npix),
             new_npix_xy=(self._npix_8*2, self._npix_8*2), **kwargs,
         )
 
