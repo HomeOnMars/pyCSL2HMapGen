@@ -35,7 +35,6 @@ class HMap:
         MUST be:
             1) 2D,
             2) postive in every pixel,
-            3) # of pixels per row and per column being a multiple of 8.
 
     z_seabed : float
         Seabed height in meters. Must be positive.
@@ -54,10 +53,6 @@ class HMap:
 
     _npix_xy   : tuple[int, int]
         Data shape. i.e. number of pixel in each dim.
-
-    _npix_xy_8 : tuple[int, int]
-        == int(self._npix_xy / 8)
-        Cached for fast access.
         
     _map_width : tuple[float, float]
         map width in meters (i.e. whatever unit self.data is in).
@@ -106,7 +101,6 @@ class HMap:
         # vars yet to be set
         self._ndim      : int             = 2
         self._npix_xy   : tuple[int, int] = (0, 0)
-        self._npix_xy_8 : tuple[int, int] = (0, 0)
 
         
         # do things
@@ -121,7 +115,6 @@ class HMap:
         
         # no of pixel: defining map resolution
         self._npix_xy   = self.data.shape
-        self._npix_xy_8 = tuple([int(npix_i/8) for npix_i in self._npix_xy])
         self._ndim      = len(self._npix_xy)
 
         try:
@@ -132,7 +125,6 @@ class HMap:
             
         # safety checks
         assert self._ndim == 2
-        assert np.all(np.array(self._npix_xy_8) * 8 == np.array(self._npix_xy))
         assert self.z_seabed >= 0
         assert self.z_sealvl >= 0
         

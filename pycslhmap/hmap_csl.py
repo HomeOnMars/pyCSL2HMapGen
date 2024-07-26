@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-"""A class to handle height maps.
+"""A class to handle Cities: Skylines 2 height maps.
 
 Author: HomeOnMars
 -------------------------------------------------------------------------------
@@ -141,8 +141,8 @@ class CSL2HMap(HMap):
         # variables
         
         # no of pixel: defining map resolution
-        self._npix      = self._npix_xy[0]
-        self._npix_8    = self._npix_xy_8[0]
+        self._npix   = self._npix_xy[0]
+        self._npix_8 = int(self._npix / 8)
 
         try:
             len(self._map_width)
@@ -151,12 +151,12 @@ class CSL2HMap(HMap):
                 self._map_width for i in range(self._ndim)])
             
         # safety checks
-        assert self._ndim   == 2
+        assert self._ndim == 2
         assert self.data.shape[0] == self.data.shape[1]
-        assert self._npix   == self.data.shape[0]
-        assert self._npix   == self._npix_xy[1]
-        assert self._npix_8 == self._npix_xy_8[1]
-        assert self._npix   == NPIX_CSL2
+        assert self._npix == self.data.shape[0]
+        assert self._npix == self._npix_xy[1]
+        assert self._npix == self._npix_8 * 8
+        assert self._npix == NPIX_CSL2
         
         return self
 
