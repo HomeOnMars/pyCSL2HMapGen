@@ -33,7 +33,7 @@ from scipy.ndimage import map_coordinates
 @jit(nopython=True)
 def _pos_to_ind_f(
     pos: float,
-    map_width: float,
+    map_wid: float,
     npix: int,
 ) -> float:
     """Mapping position to indexes.
@@ -41,14 +41,14 @@ def _pos_to_ind_f(
     e.g. For a 4096**2 14336m wide map,
         it maps [-7168., 7168.] -> [-0.5, 4095.5]
     """
-    return (0.5 + pos / map_width) * npix - 0.5
+    return (0.5 + pos / map_wid) * npix - 0.5
 
 
 
 @jit(nopython=True)
 def _pos_to_ind_d(
     pos: float,
-    map_width: float,
+    map_wid: float,
     npix: int,
 ) -> int:
     """Mapping position to indexes.
@@ -58,11 +58,11 @@ def _pos_to_ind_d(
 
     Warning: No safety checks.
     """
-    #return (0.5 + pos / map_width) * npix - 0.5    # actual
+    #return (0.5 + pos / map_wid) * npix - 0.5    # actual
     # note: int maps -0.? to 0 as well,
     #  so we needn't be concerned with accidentally mapping to -1
-    ans = int((0.5 + pos / map_width) * npix)
-    if ans == npix: ans = npix - 1    # in case pos == map_width/2. exactly
+    ans = int((0.5 + pos / map_wid) * npix)
+    if ans == npix: ans = npix - 1    # in case pos == map_wid/2. exactly
     return ans
 
 
@@ -70,7 +70,7 @@ def _pos_to_ind_d(
 @jit(nopython=True)
 def _ind_to_pos(
     ind: int|float,
-    map_width: float,
+    map_wid: float,
     npix: int,
 ) -> float:
     """Mapping indexes to position.
@@ -78,8 +78,8 @@ def _ind_to_pos(
     e.g. For a 4096**2 14336m wide map,
         it maps [0, 4095] -> [-7168. + 3.5/2, 7168. - 3.5/2]
     """
-    #return (-map_width + map_width/npix)/2. + map_width/npix*ind
-    return (-0.5 + (0.5 + ind)/npix) * map_width
+    #return (-map_wid + map_wid/npix)/2. + map_wid/npix*ind
+    return (-0.5 + (0.5 + ind)/npix) * map_wid
 
 
 
@@ -121,7 +121,7 @@ class HMap:
     _npix_xy   : tuple[int, int]
         Data shape. i.e. number of pixel in each dim.
         
-    _map_width : tuple[float, float]
+    _map_widxy : tuple[float, float]
         map width in meters (i.e. whatever unit self.data is in).
         It's 57344. for CSL2 world map, and 14336. for CSL2 playable area.
         (Because 57344 = 3.5*4*4096)
@@ -151,7 +151,7 @@ class HMap:
         # init
         if isinstance(data, HMap):
             if use_data_meta:
-                map_width = data._map_width
+                map_width = data._map_widxy
                 z_seabed  = data.z_seabed
                 z_sealvl  = data.z_sealvl
             data = data.data.copy()
@@ -161,7 +161,7 @@ class HMap:
         
         self.data  : npt.NDArray[np.float64] = np.array(data, dtype=np.float64)
         # note: will normalize float into tuple of floats later
-        self._map_width : tuple[float, float] = map_width
+        self._map_widxy : tuple[float, float] = map_width
         self.z_seabed   : float = z_seabed
         self.z_sealvl   : float = z_sealvl
         
@@ -185,10 +185,10 @@ class HMap:
         self._ndim      = len(self._npix_xy)
 
         try:
-            len(self._map_width)
+            len(self._map_widxy)
         except TypeError:
-            self._map_width = tuple([
-                self._map_width for i in range(self._ndim)])
+            self._map_widxy = tuple([
+                self._map_widxy for i in range(self._ndim)])
             
         # safety checks
         assert self._ndim == 2
@@ -204,9 +204,9 @@ class HMap:
 
 # Meta data
     Pixels shape  : {self.data.shape = } | {self._npix_xy = }
-    Map Widths    : NS/y {self._map_width[0]:.2f},\
-    WE/x {self._map_width[1]:.2f},\
-    with {len(self._map_width) = }
+    Map Widths    : NS/y {self._map_widxy[0]:.2f},\
+    WE/x {self._map_widxy[1]:.2f},\
+    with {len(self._map_widxy) = }
 
 # Height data insight
     Average height: {np.average(self.data):.2f} +/- {np.std(self.data):.2f}
@@ -292,7 +292,7 @@ class HMap:
         #self.__init__(pixels, map_width=map_width,
         #              z_seabed=z_seabed, z_sealvl=z_sealvl,)
         self.data = np.array(pixels, dtype=np.float64)
-        self._map_width = map_width
+        self._map_widxy = map_width
         self.z_seabed   = z_seabed
         self.z_sealvl   = z_sealvl
         self.normalize()
@@ -435,8 +435,8 @@ class HMap:
             for i in range(2)
         ])
         tick_vals = tuple([
-            (0.5 - tick_locs[0] / self._npix_xy[0]      ) * self._map_width[0],
-            (      tick_locs[1] / self._npix_xy[1] - 0.5) * self._map_width[1],
+            (0.5 - tick_locs[0] / self._npix_xy[0]      ) * self._map_widxy[0],
+            (      tick_locs[1] / self._npix_xy[1] - 0.5) * self._map_widxy[1],
         ])
         tick_labels = tuple([
             [f'{tick_val:.0f}' for tick_val in tick_vals[i]]
@@ -533,9 +533,9 @@ class HMap:
         ans = HMap(self.copy_meta_only())
         ans.data = map_coordinates(
             self.data, xy_coords, order=interp_order, cval=z_seabed, **kwargs)
-        ans._map_width = (
-            self._map_width[0] * nslim_npix / self._npix_xy[0],
-            self._map_width[1] * welim_npix / self._npix_xy[1],
+        ans._map_widxy = (
+            self._map_widxy[0] * nslim_npix / self._npix_xy[0],
+            self._map_widxy[1] * welim_npix / self._npix_xy[1],
         )
         ans.normalize()
         return ans

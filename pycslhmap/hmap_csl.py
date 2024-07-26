@@ -143,12 +143,6 @@ class CSL2HMap(HMap):
         # no of pixel: defining map resolution
         self._npix   = self._npix_xy[0]
         self._npix_8 = int(self._npix / 8)
-
-        try:
-            len(self._map_width)
-        except TypeError:
-            self._map_width = tuple([
-                self._map_width for i in range(self._ndim)])
             
         # safety checks
         assert self._ndim == 2
