@@ -23,7 +23,7 @@ by following the following steps:
 
 #### Step 0: Install python
 Use pip or Anaconda (or whatever) to install the required dependencies:
-    `python (>=3.10), numpy, scipy, matplotlib, gdal, pypng`
+    `python (>=3.10), numba, numpy, scipy, matplotlib, gdal, pypng`
 before you continue.
 
 #### Step 1: Find a real world location you want to make your CSL2 map out of.
