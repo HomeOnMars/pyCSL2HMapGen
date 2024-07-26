@@ -11,7 +11,7 @@ Author: HomeOnMars
 # Dependencies
 
 from typing import Self
-from random import randrange
+import random
 
 from numba import jit, prange
 import numpy as np
@@ -80,6 +80,68 @@ def _ind_to_pos(
     """
     #return (-map_wid + map_wid/npix)/2. + map_wid/npix*ind
     return (-0.5 + (0.5 + ind)/npix) * map_wid
+
+
+
+@jit(nopython=True)
+def _get_z_and_dz(
+    pos_x: float,
+    pos_y: float,
+    data : npt.NDArray[np.float64],
+    map_widxy: tuple[int, int],
+) -> tuple[float, float, float]:
+    """Get height and gradients at specified position in physical units.
+
+    pos_xy in physical units, within range of [-map_widxy/2., map_widxy/2.]
+
+    Returns: z, dz_dx, dz_dy
+    """
+
+    # init
+    map_wid_x, map_wid_y = map_widxy
+    npix_x, npix_y = data.shape
+    assert npix_x >= 2 and npix_y >= 2    # otherwise interpolation will break
+    # coord in unit of indexes
+    ind_x = _pos_to_ind_f(pos_x, map_wid_x, npix_x)
+    ind_y = _pos_to_ind_f(pos_y, map_wid_y, npix_y)
+    # closest indexes
+    i_x_m = int(ind_x)    # m for minus
+    i_y_m = int(ind_y)
+    # allowing extrapolation
+    if i_x_m < 0:
+        i_x_m = 0
+    elif i_x_m >= npix_x - 1:
+        i_x_m = npix_x - 2
+    if i_y_m < 0:
+        i_y_m = 0
+    elif i_y_m >= npix_y - 1:
+        i_y_m = npix_y - 2
+    # distance frac
+    tx = ind_x - i_x_m
+    ty = ind_y - i_y_m
+
+
+    # 2D linear interpolate to find z
+    z = (
+        (  1.-tx) * (1.-ty) * data[i_x_m,   i_y_m  ]
+        +     tx  * (1.-ty) * data[i_x_m+1, i_y_m  ]
+        + (1.-tx) *     ty  * data[i_x_m,   i_y_m+1]
+        +     tx  *     ty  * data[i_x_m+1, i_y_m+1]
+    )
+
+    # estimate the gradient with linear interpolation along the other axis
+    #    not the most scientifically accurate but it will do
+    dz_dx = (
+        (1.-ty) * (data[i_x_m+1, i_y_m  ] - data[i_x_m,   i_y_m  ])
+        +   ty  * (data[i_x_m+1, i_y_m+1] - data[i_x_m,   i_y_m+1])
+    ) / (map_wid_x / npix_x)
+
+    dz_dy = (
+        (1.-tx) * (data[i_x_m  , i_y_m+1] - data[i_x_m,   i_y_m  ])
+        +   tx  * (data[i_x_m+1, i_y_m+1] - data[i_x_m+1, i_y_m  ])
+    ) / (map_wid_y / npix_y)
+    
+    return z, dz_dx, dz_dy
 
 
 
