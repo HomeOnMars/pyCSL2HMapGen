@@ -55,11 +55,15 @@ def _pos_to_ind_d(
     
     e.g. For a 4096**2 14336m wide map,
         it maps [-7168., 7168.] -> [0, 4095]
+
+    Warning: No safety checks.
     """
     #return (0.5 + pos / map_width) * npix - 0.5    # actual
     # note: int maps -0.? to 0 as well,
     #  so we needn't be concerned with accidentally mapping to -1
-    return int((0.5 + pos / map_width) * npix)
+    ans = int((0.5 + pos / map_width) * npix)
+    if ans == npix: ans = npix - 1    # in case pos == map_width/2. exactly
+    return ans
 
 
 
