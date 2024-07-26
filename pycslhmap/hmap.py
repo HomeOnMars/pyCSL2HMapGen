@@ -11,14 +11,77 @@ Author: HomeOnMars
 # Dependencies
 
 from typing import Self
+from random import randrange
+
+from numba import jit, prange
 import numpy as np
 from numpy import pi
 from numpy import typing as npt
-from scipy.ndimage import map_coordinates
-import png
 import matplotlib as mpl
 from matplotlib import pyplot as plt
+import png
+from scipy.ndimage import map_coordinates
 
+
+
+#-----------------------------------------------------------------------------#
+#    Functions
+#-----------------------------------------------------------------------------#
+
+
+
+@jit(nopython=True)
+def _pos_to_ind_f(
+    pos: float,
+    map_width: float,
+    npix: int,
+) -> float:
+    """Mapping position to indexes.
+    
+    e.g. For a 4096**2 14336m wide map,
+        it maps [-7168., 7168.] -> [-0.5, 4095.5]
+    """
+    return (0.5 + pos / map_width) * npix - 0.5
+
+
+
+@jit(nopython=True)
+def _pos_to_ind_d(
+    pos: float,
+    map_width: float,
+    npix: int,
+) -> int:
+    """Mapping position to indexes.
+    
+    e.g. For a 4096**2 14336m wide map,
+        it maps [-7168., 7168.] -> [0, 4095]
+    """
+    #return (0.5 + pos / map_width) * npix - 0.5    # actual
+    # note: int maps -0.? to 0 as well,
+    #  so we needn't be concerned with accidentally mapping to -1
+    return int((0.5 + pos / map_width) * npix)
+
+
+
+@jit(nopython=True)
+def _ind_to_pos(
+    ind: int|float,
+    map_width: float,
+    npix: int,
+) -> float:
+    """Mapping indexes to position.
+    
+    e.g. For a 4096**2 14336m wide map,
+        it maps [0, 4095] -> [-7168. + 3.5/2, 7168. - 3.5/2]
+    """
+    #return (-map_width + map_width/npix)/2. + map_width/npix*ind
+    return (-0.5 + (0.5 + ind)/npix) * map_width
+
+
+
+#-----------------------------------------------------------------------------#
+#    Classes
+#-----------------------------------------------------------------------------#
 
 
 
