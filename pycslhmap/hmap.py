@@ -69,10 +69,10 @@ def _pos_to_ind_d(
 
 @jit(nopython=True)
 def _ind_to_pos(
-    ind: int|float,
+    ind: int|float|npt.NDArray[int]|npt.NDArray[float],
     map_wid: float,
     npix: int,
-) -> float:
+) -> float|npt.NDArray[float]:
     """Mapping indexes to position.
     
     e.g. For a 4096**2 14336m wide map,
@@ -512,6 +512,84 @@ class HMap:
         ax.set_xticks(tick_locs[1])
         ax.set_xticklabels(tick_labels[1])
 
+        return fig, ax
+
+
+
+    def plot_3D(
+        self,
+        fig : None|mpl.figure.Figure = None,
+        ax  : None|mpl.axes.Axes     = None,
+        figsize : tuple[int, int] = (8, 6),
+        add_cbar: bool = True,
+        z_sealvl: None|float = None,
+        rotate_azim_deg: float = 30.,
+        **kwargs,
+    ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
+        """Return a 3D surface plot.
+        
+        The plot can be rotated using ax.view_init(azim=[angle_in_degrees])
+
+        Parameters
+        ----------
+        ...
+        rotate_azim_deg: float
+            rotate the plot w.r.t. z axis
+        ...
+        """
+        if z_sealvl is None:
+            z_sealvl = self.z_sealvl
+        if fig is None:
+            fig = plt.figure(figsize = figsize)
+        if ax is None:
+            ax = fig.add_subplot(projection='3d')
+
+        # figure out coordinates
+        x_coord  = np.linspace(
+            _ind_to_pos(
+                0,                  self._map_widxy[0], self._npix_xy[0]),
+            _ind_to_pos(
+                self._npix_xy[0]-1, self._map_widxy[0], self._npix_xy[0]),
+            self._npix_xy[0], endpoint=True)
+        y_coord  = np.linspace(
+            _ind_to_pos(
+                0,                  self._map_widxy[1], self._npix_xy[1]),
+            _ind_to_pos(
+                self._npix_xy[1]-1, self._map_widxy[1], self._npix_xy[1]),
+            self._npix_xy[1], endpoint=True)
+        xy_coords= np.stack(
+            np.meshgrid(x_coord, y_coord, indexing='ij'), axis=0)
+
+        # plot
+        cax = ax.plot_surface(
+            xy_coords[0], xy_coords[1], self.data - z_sealvl,
+            cmap=mpl.cm.coolwarm,
+        )
+        if add_cbar:
+            cmap = fig.colorbar(cax)
+            cmap.set_label('Meters above sea level')
+        ax.set_title("Height Map")
+        
+        # update tick labels
+        tick_locs = (
+            np.linspace(x_coord[0], x_coord[-1], 9, dtype=np.int64),
+            np.linspace(y_coord[0], y_coord[-1], 9, dtype=np.int64),
+        )
+        tick_vals = tick_locs
+        tick_labels = tuple([
+            [f'{tick_val:.0f}' for tick_val in tick_vals[i]]
+            for i in range(2)
+        ])
+        tick_labels[0][ 0] = f"{tick_labels[0][ 0]}  W"
+        tick_labels[0][-1] = f"{tick_labels[0][-1]}  E"
+        tick_labels[1][ 0] = f"{tick_labels[1][ 0]}  N"
+        tick_labels[1][-1] = f"{tick_labels[1][-1]}  S"
+        ax.set_yticks(tick_locs[0])
+        ax.set_yticklabels(tick_labels[0])
+        ax.set_xticks(tick_locs[1])
+        ax.set_xticklabels(tick_labels[1])
+        
+        ax.view_init(azim=30)
         return fig, ax
         
     
