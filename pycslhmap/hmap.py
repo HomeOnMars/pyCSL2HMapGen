@@ -30,6 +30,15 @@ from scipy.ndimage import map_coordinates
 
 
 @jit(nopython=True)
+def _norm(
+    v_x: float, v_y: float, v_z: float,
+) -> float:
+    """Get the norm of a vector."""
+    return (v_x**2 + v_y**2 + v_z**2)**0.5
+
+    
+
+@jit(nopython=True)
 def _hat(
     v_x: float, v_y: float, v_z: float,
     factor: float = 1.0,
@@ -38,7 +47,7 @@ def _hat(
 
     If both input are zero, will return zero vector.
     """
-    v = (v_x**2 + v_y**2 + v_z**2)**0.5
+    v = _norm(v_x, v_y, v_z) #(v_x**2 + v_y**2 + v_z**2)**0.5
     if v:
         return v_x/v*factor, v_y/v*factor, v_z/v*factor
     else:
