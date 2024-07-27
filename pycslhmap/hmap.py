@@ -172,6 +172,126 @@ def _get_z_and_dz(
 
 
 
+@jit(nopython=True)
+def _erode_raindrop_once(
+    data: npt.NDArray[np.float64],
+    map_widxy: tuple[int, int],
+    z_seabed: float,
+    z_sealvl: float,
+    max_steps_per_drop: int   = 65536,
+    friction_coeff    : float = .01,
+    energy_conserv_fac: float = 0.,
+    g : float = 9.8,
+):
+    """Erosion.
+
+    Best keep data in same resolution in both x and y.
+    
+    Parameters
+    ----------
+    max_steps_per_drop: int
+        maximum steps (i.e. distance) the rain drop is allowed to travel.
+    friction_coeff : float
+        friction coefficient. should be within 0. <= friction_coeff < 1.
+        Physics says we cannot assign friction coeff to a liquid.
+        Well let's pretend we can because it's all very approximate.
+    energy_conserv_fac : float
+        Switch between energy-conserved mode and momentum-conserved mode
+            when the raindrop changes its direction.
+         0. for momentum conservation, 1. for energy conservation.
+    g : gravitational accceleration in m/s^2
+    ...
+    """
+
+    raise NotImplementedError
+
+    # step 1: Generate a raindrop at random locations
+    
+    npix_x, npix_y = data.shape
+    map_wid_x, map_wid_y = map_widxy
+    #assert map_wid_x == map_wid_y
+    
+    # i for in index unit; no i for in physical unit
+    # distance per step (regardless of velocity)
+    ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.
+    ds    : float = ds_xy
+    dt    : float = 0.
+    # position
+    p_x : float = random.uniform(-map_wid_x/2., map_wid_x/2.)
+    p_y : float = random.uniform(-map_wid_y/2., map_wid_y/2.)
+    x_i : int = _pos_to_ind_d(p_x, map_wid_x, npix_x)
+    y_i : int = _pos_to_ind_d(p_y, map_wid_y, npix_y)
+    # direction (i.e. each step)
+    d_x : float = random.uniform(-ds_xy, ds_xy)
+    d_y : float = (ds_xy**2 - d_x**2)**0.5 * (random.randint(0, 1)*2 - 1)
+    # velocity
+    v   : float = 0.
+    v_x : float = 0.
+    v_y : float = 0.
+    v_z : float = 0.
+    # sediment content
+    c   : float = 0.
+
+    for s in range(max_steps_per_drop):
+
+        # init
+        x_i = _pos_to_ind_d(p_x, map_wid_x, npix_x)
+        y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
+        p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
+        # step / velocity direction
+        d_x, d_y, _ = _hat(d_x, d_y, 0., ds_xy)
+        d_z = dz_dx * d_x + dz_dy * d_y
+        ds  = _norm(d_x, d_y, d_z)
+        # gradient direction of z - b for nabla
+        b_x, b_y, _ = _hat(dz_dx, dz_dy, 0.)
+        b_z = dz_dx * b_x + dz_dy * b_y
+        b_x, b_y, b_z = _hat(b_x, b_y, b_z)
+        # velocity - assuming conserved energy
+        if energy_conserv_fac:
+            v_old_x, v_old_y, v_old_z = v_x, v_y, v_z
+            v_x, v_y, v_z = _hat(d_x, d_y, d_z, v)
+            v_x = (1. - energy_conserv_fac)*v_old_x + energy_conserv_fac*v_x
+            v_y = (1. - energy_conserv_fac)*v_old_y + energy_conserv_fac*v_y
+            v_z = (1. - energy_conserv_fac)*v_old_z + energy_conserv_fac*v_z
+        # accelerations
+        if energy_conserv_fac < 1.: # do force sim
+            
+            g_x, g_y, g_z = _hat(b_x, b_y, b_z, b_z*g)
+            # note: b_z/_norm(b_x, b_y, b_z) because
+            #    the other two get cancelled out by ground's support force
+            # friction (v**2/ds = v/dt)
+            #    i.e. friction does not move things on its own
+            f = min(friction_coeff * g, v**2/ds)    
+            a_x = g_x - f * d_x / ds
+            a_y = g_y - f * d_y / ds
+            a_z = g_z - f * d_z / ds
+            a = _norm(a_x, a_y, a_z)
+            # update position / direction
+            if a:
+                dt  = ((v**2 + 2 * a * ds)**0.5 - v) / a
+            elif v:
+                dt  = ds / v
+            else:
+                # the rain drop got stuck. end this drop.
+                break
+            v_x += a_x * dt
+            v_y += a_y * dt
+            v_z += a_z * dt
+            
+        
+
+
+        #raise NotImplementedError
+        #d_x = NotImplementedError
+        #d_y = NotImplementedError
+        
+        
+
+    
+    return data[x_i, y_i], dt, a, a*dt
+
+
+
 #-----------------------------------------------------------------------------#
 #    Classes
 #-----------------------------------------------------------------------------#
