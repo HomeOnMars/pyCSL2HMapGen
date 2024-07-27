@@ -239,6 +239,7 @@ def _erode_raindrop_once(
         # direction (i.e. each step)
         d_x : float = random.uniform(-ds_xy, ds_xy)
         d_y : float = (ds_xy**2 - d_x**2)**0.5 * (random.randint(0, 1)*2 - 1)
+        d_z : float = 0.
         # velocity
         v   : float = 0.
         v_x : float = 0.
@@ -260,9 +261,13 @@ def _erode_raindrop_once(
             paths[x_i, y_i] += 1
             p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
             # velocity direction (before step)
-            d_x, d_y, _ = _hat(d_x, d_y, 0., ds_xy)
-            d_z = dz_dx * d_x + dz_dy * d_y
-            ds  = (ds_xy**2 + d_z**2)**0.5 #_norm(d_x, d_y, d_z)
+            #    normalize so that d_x**2 + d_y**2 == ds_xy
+            d_factor = ds_xy / (d_x**2 + d_y**2)
+            d_x *= d_factor
+            d_y *= d_factor
+            d_z *= d_factor
+            #d_z = dz_dx * d_x + dz_dy * d_y
+            ds  = (ds_xy**2 + d_z**2)**0.5
             # gradient direction of z (b for nabla)
             # i.e. dx_ds, dy_ds, dz_ds
             b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
@@ -295,12 +300,13 @@ def _erode_raindrop_once(
             p_y += d_y
             d_x = v_x * dt + a_x * dt**2 / 2
             d_y = v_y * dt + a_y * dt**2 / 2
+            d_z = v_z * dt + a_z * dt**2 / 2
             # update velocity
             v_x += a_x * dt
             v_y += a_y * dt
             v_z += a_z * dt
             ## pending optimization
-            #p_z_new, _, _ = _get_z_and_dz(p_x, p_y, data, map_widxy)
+            #p_new_z, _, _ = _get_z_and_dz(p_x, p_y, data, map_widxy)
             #v_z  = (p_z_new - p_z) / dt if dt else 0.
             v    = _norm(v_x, v_y, v_z)
             if turning:
