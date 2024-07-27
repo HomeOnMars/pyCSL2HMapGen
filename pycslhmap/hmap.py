@@ -208,8 +208,10 @@ def _erode_raindrop_once(
     """
 
     raise NotImplementedError
-    
+
     paths = np.zeros_like(data, dtype=np.int64)
+    lib_z = np.zeros(max_steps_per_drop)
+    lib_v = np.zeros(max_steps_per_drop)
 
 
     if True:
@@ -265,14 +267,6 @@ def _erode_raindrop_once(
             b_x, b_y, _ = _hat(dz_dx, dz_dy, 0.)
             b_z = dz_dx * b_x + dz_dy * b_y
             b_x, b_y, b_z = _hat(b_x, b_y, b_z)
-            # velocity
-            if energy_conserv_fac:
-                # conserve energy somewhat
-                v_old_x, v_old_y, v_old_z = v_x, v_y, v_z
-                v_x, v_y, v_z = _hat(d_x, d_y, d_z, v)
-                v_x = (1.- energy_conserv_fac)*v_old_x + energy_conserv_fac*v_x
-                v_y = (1.- energy_conserv_fac)*v_old_y + energy_conserv_fac*v_y
-                v_z = (1.- energy_conserv_fac)*v_old_z + energy_conserv_fac*v_z
             # accelerations
             g_x, g_y, g_z = _hat(b_x, b_y, b_z, -b_z*g)
             # note: b_z/_norm(b_x, b_y, b_z) because
@@ -294,12 +288,35 @@ def _erode_raindrop_once(
                 # droplet stuck - terminate
                 break
             # update position / direction
-            p_x += v_x * dt + a_x * dt**2 / 2
-            p_y += v_y * dt + a_y * dt**2 / 2
+            dp_x = v_x * dt + a_x * dt**2 / 2
+            dp_y = v_y * dt + a_y * dt**2 / 2
+            p_x += dp_x
+            p_y += dp_y
+            # update velocity
+            v_old_x, v_old_y, v_old_z = v_x, v_y, v_z
             v_x += a_x * dt
             v_y += a_y * dt
-            v_z += a_z * dt
+            #v_z += a_z * dt
+            # pending optimization
+            p_z_new, _, _ = _get_z_and_dz(p_x, p_y, data, map_widxy)
+            v_z  = (p_z_new - p_z) / dt if dt else 0.
             v    = _norm(v_x, v_y, v_z)
+            if energy_conserv_fac:
+                # conserve energy somewhat
+                #v_x, v_y, v_z = _hat(d_x, d_y, d_z, v)    # reset v direction
+                v_x, v_y, v_z = _hat(d_x, d_y, 0, v)    # reset v direction
+                v_x = (1.- energy_conserv_fac)*v_old_x + energy_conserv_fac*v_x
+                v_y = (1.- energy_conserv_fac)*v_old_y + energy_conserv_fac*v_y
+                v_z = (1.- energy_conserv_fac)*v_old_z + energy_conserv_fac*v_z
+                
+
+            # log
+            lib_z[s] = p_z
+            lib_v[s] = v
+            if dp_x > 2*ds_xy:
+                print("error: at s=", s, "dp_x=", dp_x)
+            if dp_y > 2*ds_xy:
+                print("error: at s=", s, "dp_y=", dp_y)
 
             # check
             if (   p_x <= -map_wid_x_b
@@ -311,7 +328,7 @@ def _erode_raindrop_once(
 
 
     
-    return paths, x_i, y_i, s, v, a, ds, dt, v_x * dt + a_x * dt**2 / 2, v_y * dt + a_y * dt**2 / 2
+    return paths, lib_z, lib_v, s, x_i, y_i, v, a, ds, dt, dp_x, dp_y
 
 
 
