@@ -32,7 +32,7 @@ from scipy.ndimage import map_coordinates
 @jit(nopython=True)
 def _hat(
     v_x: float, v_y: float, v_z: float,
-    factor: float = 1.0
+    factor: float = 1.0,
 ) -> tuple[float, float, float]:
     """Get the directions of a vector as a new unit vector.
 
