@@ -207,6 +207,8 @@ def _erode_raindrop_once(
     ...
     """
 
+    raise NotImplementedError
+    
     paths = np.zeros_like(data, dtype=np.int64)
 
 
