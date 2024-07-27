@@ -179,7 +179,7 @@ def _erode_raindrop_once(
     z_seabed: float,
     z_sealvl: float,
     max_steps_per_drop: int   = 65536,
-    energy_conserv_fac: float = 0.,
+    turning : float = 0.,
     friction_coeff    : float = .01,
     g : float = 9.8,
 ):
@@ -193,7 +193,7 @@ def _erode_raindrop_once(
     max_steps_per_drop: int
         maximum steps (i.e. distance) the rain drop is allowed to travel.
         
-    energy_conserv_fac : float
+    turning : float
         Switch between energy-conserved mode and momentum-conserved mode
             when the raindrop changes its direction.
          0. for momentum conservation, 1. for energy conservation.
@@ -209,26 +209,26 @@ def _erode_raindrop_once(
 
     raise NotImplementedError
 
+    # init
     paths = np.zeros_like(data, dtype=np.int64)
     lib_z = np.zeros(max_steps_per_drop)
     lib_v = np.zeros(max_steps_per_drop)
 
+    npix_x, npix_y = data.shape
+    map_wid_x, map_wid_y = map_widxy
+    # boundaries: [-map_wid_x_b, map_wid_x_b]
+    map_wid_x_b = map_wid_x * (0.5 - 0.5/npix_x)
+    map_wid_y_b = map_wid_y * (0.5 - 0.5/npix_y)
+    #assert map_wid_x == map_wid_y
 
     if True:
 
         
         # step 1: Generate a raindrop at random locations
         
-        npix_x, npix_y = data.shape
-        map_wid_x, map_wid_y = map_widxy
-        # boundaries- [-map_wid_x_b, map_wid_x_b]
-        map_wid_x_b = map_wid_x * (0.5 - 0.5/npix_x)
-        map_wid_y_b = map_wid_y * (0.5 - 0.5/npix_y)
-        #assert map_wid_x == map_wid_y
-        
         # i for in index unit; no i for in physical unit
         # distance per step (regardless of velocity)
-        ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.
+        ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.    # fixed
         ds    : float = ds_xy
         dt    : float = 0.
         # position
@@ -259,24 +259,27 @@ def _erode_raindrop_once(
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
             paths[x_i, y_i] += 1
             p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
-            # step / velocity direction
+            # velocity direction (before step)
             d_x, d_y, _ = _hat(d_x, d_y, 0., ds_xy)
             d_z = dz_dx * d_x + dz_dy * d_y
-            ds  = _norm(d_x, d_y, d_z)
-            # gradient direction of z - b for nabla
-            b_x, b_y, _ = _hat(dz_dx, dz_dy, 0.)
-            b_z = dz_dx * b_x + dz_dy * b_y
-            b_x, b_y, b_z = _hat(b_x, b_y, b_z)
+            ds  = (ds_xy**2 + d_z**2)**0.5 #_norm(d_x, d_y, d_z)
+            # gradient direction of z (b for nabla)
+            # i.e. dx_ds, dy_ds, dz_ds
+            b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
             # accelerations
-            g_x, g_y, g_z = _hat(b_x, b_y, b_z, -b_z*g)
+            # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
+            g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
+            g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
+            g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
+            g_f =  b_z * g # for friction
             # note: b_z/_norm(b_x, b_y, b_z) because
             #    the other two get cancelled out by ground's support force
             # friction (v**2/ds = v/dt)
             #    i.e. friction does not move things on its own
-            f = min(friction_coeff * g, v**2/ds)    
-            a_x = g_x - f * d_x / ds
-            a_y = g_y - f * d_y / ds
-            a_z = g_z - f * d_z / ds
+            a_f = min(friction_coeff * g_f, v**2/ds)    
+            a_x = g_x - a_f * d_x / ds
+            a_y = g_y - a_f * d_y / ds
+            a_z = g_z - a_f * d_z / ds
             v_xy = _norm(v_x, v_y, 0.)
             a_xy = _norm(a_x, a_y, 0.)
             # get time step
@@ -288,35 +291,35 @@ def _erode_raindrop_once(
                 # droplet stuck - terminate
                 break
             # update position / direction
-            dp_x = v_x * dt + a_x * dt**2 / 2
-            dp_y = v_y * dt + a_y * dt**2 / 2
-            p_x += dp_x
-            p_y += dp_y
+            p_x += d_x
+            p_y += d_y
+            d_x = v_x * dt + a_x * dt**2 / 2
+            d_y = v_y * dt + a_y * dt**2 / 2
             # update velocity
-            v_old_x, v_old_y, v_old_z = v_x, v_y, v_z
             v_x += a_x * dt
             v_y += a_y * dt
-            #v_z += a_z * dt
-            # pending optimization
-            p_z_new, _, _ = _get_z_and_dz(p_x, p_y, data, map_widxy)
-            v_z  = (p_z_new - p_z) / dt if dt else 0.
+            v_z += a_z * dt
+            ## pending optimization
+            #p_z_new, _, _ = _get_z_and_dz(p_x, p_y, data, map_widxy)
+            #v_z  = (p_z_new - p_z) / dt if dt else 0.
             v    = _norm(v_x, v_y, v_z)
-            if energy_conserv_fac:
+            if turning:
                 # conserve energy somewhat
-                #v_x, v_y, v_z = _hat(d_x, d_y, d_z, v)    # reset v direction
-                v_x, v_y, v_z = _hat(d_x, d_y, 0, v)    # reset v direction
-                v_x = (1.- energy_conserv_fac)*v_old_x + energy_conserv_fac*v_x
-                v_y = (1.- energy_conserv_fac)*v_old_y + energy_conserv_fac*v_y
-                v_z = (1.- energy_conserv_fac)*v_old_z + energy_conserv_fac*v_z
+                # I mean turn the direction immediately after update
+                # reset v direction
+                v_new_x, v_new_y, v_new_z = _hat(d_x, d_y, d_z, v)
+                v_x = (1.- turning)*v_x + turning*v_new_x
+                v_y = (1.- turning)*v_y + turning*v_new_y
+                v_z = (1.- turning)*v_z + turning*v_new_z
                 
 
             # log
             lib_z[s] = p_z
             lib_v[s] = v
-            if dp_x > 2*ds_xy:
-                print("error: at s=", s, "dp_x=", dp_x)
-            if dp_y > 2*ds_xy:
-                print("error: at s=", s, "dp_y=", dp_y)
+            if abs(d_x) > 2*ds_xy or abs(d_y) > 2*ds_xy:
+                # something has gone horribly wrong
+                print("error: at s=", s, "d_x=", d_x, "d_y=", d_y)
+                break
 
             # check
             if (   p_x <= -map_wid_x_b
@@ -328,7 +331,7 @@ def _erode_raindrop_once(
 
 
     
-    return paths, lib_z, lib_v, s, x_i, y_i, v, a, ds, dt, dp_x, dp_y
+    return paths, lib_z, lib_v, s, x_i, y_i, v, a, ds, dt, d_x, d_y
 
 
 
