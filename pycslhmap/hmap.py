@@ -30,18 +30,16 @@ from scipy.ndimage import map_coordinates
 
 
 @jit(nopython=True)
-def _hat(v_x: float, v_y: float) -> tuple[float, float]:
+def _hat(v_x: float, v_y: float, v_z: float) -> tuple[float, float, float]:
     """Get the directions of a vector as a new unit vector.
 
     If both input are zero, will return zero vector.
     """
-    v = (v_x**2 + v_y**2)**0.5
+    v = (v_x**2 + v_y**2 + v_z**2)**0.5
     if v:
-        hat_x = v_x / v
-        hat_y = v_y / v
+        return v_x/v, v_y/v, v_z/v
     else:
-        hat_x, hat_y = 0., 0.
-    return hat_x, hat_y
+        return 0., 0., 0.
     
 
 
@@ -110,7 +108,7 @@ def _get_z_and_dz(
     pos_xy in physical units, within range of [-map_widxy/2., map_widxy/2.]
 
     Returns: z, dz_dx, dz_dy
-    Note that dz_dx is $ \frac{\partial z}{\partial x} $
+    Note that dz_dx is $ \\frac{\\partial z}{\\partial x} $
         i.e. partial derivative
     """
 
