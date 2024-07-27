@@ -29,6 +29,21 @@ from scipy.ndimage import map_coordinates
 #-----------------------------------------------------------------------------#
 
 
+@jit(nopython=True)
+def _hat(v_x: float, v_y: float) -> tuple[float, float]:
+    """Get the directions of a vector as a new unit vector.
+
+    If both input are zero, will return zero vector.
+    """
+    v = (v_x**2 + v_y**2)**0.5
+    if v:
+        hat_x = v_x / v
+        hat_y = v_y / v
+    else:
+        hat_x, hat_y = 0., 0.
+    return hat_x, hat_y
+    
+
 
 @jit(nopython=True)
 def _pos_to_ind_f(
