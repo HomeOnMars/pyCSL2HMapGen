@@ -30,14 +30,17 @@ from scipy.ndimage import map_coordinates
 
 
 @jit(nopython=True)
-def _hat(v_x: float, v_y: float, v_z: float) -> tuple[float, float, float]:
+def _hat(
+    v_x: float, v_y: float, v_z: float,
+    factor: float = 1.0
+) -> tuple[float, float, float]:
     """Get the directions of a vector as a new unit vector.
 
     If both input are zero, will return zero vector.
     """
     v = (v_x**2 + v_y**2 + v_z**2)**0.5
     if v:
-        return v_x/v, v_y/v, v_z/v
+        return v_x/v*factor, v_y/v*factor, v_z/v*factor
     else:
         return 0., 0., 0.
     
