@@ -110,6 +110,8 @@ def _get_z_and_dz(
     pos_xy in physical units, within range of [-map_widxy/2., map_widxy/2.]
 
     Returns: z, dz_dx, dz_dy
+    Note that dz_dx is $ \frac{\partial z}{\partial x} $
+        i.e. partial derivative
     """
 
     # init
@@ -168,6 +170,7 @@ def _get_z_and_dz(
 
 class HMap:
     """Generic Height Map.
+
 
     Instance Variables
     ------------------
