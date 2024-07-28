@@ -76,12 +76,19 @@ class HMap:
     def __init__(
         self,
         data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
-        map_width : float|tuple[float, float] = 3584.,   # = 14*256
-        z_seabed  : float = 64.,
-        z_sealvl  : float = 128.,
+        map_width : None|float|tuple[float, float] = None,   # = 14*256
+        pix_width : None|float|tuple[float, float] = 1.,
+        z_seabed  : float = 0.,
+        z_sealvl  : float = 0.,
         use_data_meta: bool  = True,
     ):
         """Init.
+
+        map_width, pix_width: None | float | tuple[float, float]
+            Supply either.
+            map_width refers to the width of the whole map;
+            pix_width refers to the width of a single pixel.
+            if both are provided, pix_width will be ignored.
 
         use_data_meta : bool
             If true and data is of type Self or HMap,
@@ -96,11 +103,38 @@ class HMap:
                 z_seabed  = data.z_seabed
                 z_sealvl  = data.z_sealvl
             data = data.data.copy()
+        data = np.array(data, dtype=np.float64)
             
+        len_map_width : int = 0
+        try: len_map_width = len(map_width)  # tuple?
+        except TypeError: len_map_width = 0  # No.
+            
+        len_pix_width : int = 0
+        try: len_pix_width = len(pix_width)  # tuple?
+        except TypeError: len_pix_width = 0  # No.
+            
+        # set each element to pixel width if it's None
+        if pix_width is None: pix_width = 1.
+        map_width_new = np.zeros(len(data.shape), dtype=np.float64)
+        for i_mw in range(len(data.shape)):
+            mw = None
+            if i_mw < len_map_width:
+                mw  = map_width[i_mw]
+            elif len_map_width == 0:
+                mw  = map_width
+            if mw is None:
+                mw = data.shape[i_mw]
+                if i_mw < len_pix_width and pix_width[i_mw] is not None:
+                    mw *= pix_width[i_mw]
+                elif len_pix_width == 0 and pix_width is not None:
+                    mw *= pix_width
+            map_width_new[i_mw] = mw
+        map_width = tuple(map_width_new)
+                
                 
         # variables
         
-        self.data  : npt.NDArray[np.float64] = np.array(data, dtype=np.float64)
+        self.data  : npt.NDArray[np.float64] = data
         # note: will normalize float into tuple of floats later
         self._map_widxy : tuple[float, float] = map_width
         self.z_seabed   : float = z_seabed
