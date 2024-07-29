@@ -206,6 +206,9 @@ def _erode_raindrop_once(
         Switch between energy-conserved mode and momentum-conserved mode
             when the raindrop changes its direction.
          0. for momentum conservation, 1. for energy conservation.
+         i.e. when the rain drop hits a wall (or slope),
+         Does the energy gets absorbed as the drop comes to an stop (0.),
+         or does the velocity gets redirected (1.)
          
     friction_coeff : float
         friction coefficient. should be within 0. <= friction_coeff < 1.
@@ -318,9 +321,17 @@ def _erode_raindrop_once(
             #    i.e. friction does not move things on its own
             #    also, approximate ds with ds_xy
             a_f  = friction_coeff * g_f
-            a_fx = -_minabs(a_f * v_x / v, g_x + v_x**2/ds_xy)
-            a_fy = -_minabs(a_f * v_y / v, g_y + v_y**2/ds_xy)
-            a_fz = -_minabs(a_f * v_z / v, g_z + v_z**2/ds_xy)
+            if not np.isclose(v, 0.):
+                # friction against velocity direction
+                a_fx = -_minabs(a_f * v_x / v, g_x + v_x**2/ds_xy)
+                a_fy = -_minabs(a_f * v_y / v, g_y + v_y**2/ds_xy)
+                a_fz = -_minabs(a_f * v_z / v, g_z + v_z**2/ds_xy)
+            else:
+                # static friction against gravity direction
+                g_xyz= _norm(g_x, g_y, g_z)
+                a_fx = -_minabs(a_f * g_x / g_xyz, g_x)
+                a_fy = -_minabs(a_f * g_y / g_xyz, g_y)
+                a_fz = -_minabs(a_f * g_z / g_xyz, g_z)
             a_x  = g_x + a_fx
             a_y  = g_y + a_fy
             a_z  = g_z + a_fz
@@ -369,14 +380,22 @@ def _erode_raindrop_once(
             # i.e. g * p_z_new + v_new**2/2.
             #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
             # v2 = v**2
-            v_new = (
+            v2_new = (
                 2*(E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
-                )**0.5
-            v_factor = v_new / v
-            v_x *= v_factor
-            v_y *= v_factor
-            v_z *= v_factor
-            v    = _norm(v_x, v_y, v_z)
+                )
+            if v2_new < 0.:
+                # give the drop some free energy as bail out
+                v2_new = 0.
+            v_new = v2_new**0.5
+            if not np.isclose(v, 0.):
+                v_factor = v_new / v
+                v_x *= v_factor
+                v_y *= v_factor
+                v_z *= v_factor
+                v    = _norm(v_x, v_y, v_z)
+            elif not np.isclose(v_new, 0.):
+                v_z = -v_new
+                v_x, v_y = 0., 0.
 
             # log
             lib_z[s] = p_z
