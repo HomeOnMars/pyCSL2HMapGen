@@ -25,14 +25,14 @@ from numpy import typing as npt
 #-----------------------------------------------------------------------------#
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _minabs(a, b):
     """Return the elem with minimum abs value."""
     return a if abs(a) < abs(b) else b
 
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _norm(
     v_x: float, v_y: float, v_z: float,
 ) -> float:
@@ -41,7 +41,7 @@ def _norm(
 
     
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _hat(
     v_x: float, v_y: float, v_z: float,
     factor: float = 1.0,
@@ -58,7 +58,7 @@ def _hat(
     
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _pos_to_ind_f(
     pos: float,
     map_wid: float,
@@ -73,7 +73,7 @@ def _pos_to_ind_f(
 
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _pos_to_ind_d(
     pos: float,
     map_wid: float,
@@ -95,7 +95,7 @@ def _pos_to_ind_d(
 
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _ind_to_pos(
     ind: int|float|npt.NDArray[int]|npt.NDArray[float],
     map_wid: float,
@@ -111,7 +111,7 @@ def _ind_to_pos(
 
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _get_z_and_dz(
     pos_x: float,
     pos_y: float,
@@ -180,7 +180,7 @@ def _get_z_and_dz(
 #-----------------------------------------------------------------------------#
 
 
-@jit(nopython=True)
+@jit(nopython=True, fastmath=True)
 def _erode_raindrop_once(
     data: npt.NDArray[np.float64],
     map_widxy: tuple[float, float],
