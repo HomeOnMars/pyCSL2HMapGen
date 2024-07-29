@@ -223,9 +223,11 @@ def _erode_raindrop_once(
     raise NotImplementedError
 
     # init
-    paths = np.zeros_like(data, dtype=np.int64)
+    drops = np.zeros_like(data, dtype=np.int64)    # initial drops position
+    paths = np.zeros_like(data, dtype=np.int64)    # counts of passing drops
     lib_z = np.zeros(max_steps_per_drop)
     lib_v = np.zeros(max_steps_per_drop)
+    # specific energy (i.e. energy per mass)
     lib_E = np.zeros(max_steps_per_drop)
 
     npix_x, npix_y = data.shape
@@ -243,13 +245,15 @@ def _erode_raindrop_once(
         # i for in index unit; no i for in physical unit
         # distance per step (regardless of velocity)
         ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.    # fixed
-        ds    : float = ds_xy
+        #ds    : float = ds_xy
         dt    : float = 0.
         # position
         p_x : float = random.uniform(-map_wid_x_b, map_wid_x_b)
         p_y : float = random.uniform(-map_wid_y_b, map_wid_y_b)
+        p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
         x_i : int = _pos_to_ind_d(p_x, map_wid_x, npix_x)
         y_i : int = _pos_to_ind_d(p_y, map_wid_y, npix_y)
+        drops[x_i, y_i] += 1
         # direction (i.e. each step)
         d_x : float = random.uniform(-ds_xy, ds_xy)
         d_y : float = (ds_xy**2 - d_x**2)**0.5 * (random.randint(0, 1)*2 - 1)
@@ -270,7 +274,6 @@ def _erode_raindrop_once(
             x_i = _pos_to_ind_d(p_x, map_wid_x, npix_x)
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
             paths[x_i, y_i] += 1
-            p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
 
             # Fixing the velocity direction:
             #    What to do if the drop hits a wall or slope
@@ -281,19 +284,14 @@ def _erode_raindrop_once(
             #         ( norm vec being (-dz_dx, -dz_dy, 1) )
             #     is either lost (conserve momentum)
             #     or redirected (conserve energy) or somewhere in between
-
             # unit normal vecs of hmap surface
             surf_x, surf_y, surf_z = _hat(-dz_dx, -dz_dy, 1.)
             # dp for dot product
             v_dp_surf = v_x * surf_x + v_y * surf_y + v_z * surf_z
-            #d_dp_surf = d_x * surf_x + d_y * surf_y + d_z * surf_z
             # remove the part of v that directly hits surf
             v_x -= v_dp_surf * surf_x
             v_y -= v_dp_surf * surf_y
             v_z -= v_dp_surf * surf_z
-            #d_x -= d_dp_surf * surf_x
-            #d_y -= d_dp_surf * surf_y
-            #d_z -= d_dp_surf * surf_z
             if turning:
                 # adding back energy as directed
                 # ec for energy-conserved
@@ -303,17 +301,11 @@ def _erode_raindrop_once(
                 v_x, v_y, v_z = _hat(
                     v_x, v_y, v_z,
                     turning*v_ec + (1.- turning)*v_mc)
+            v = _norm(v_x, v_y, v_z)
             
-            # steps
-            #    normalize so that d_x**2 + d_y**2 == ds_xy
-            d_factor = ds_xy / (d_x**2 + d_y**2)
-            d_x *= d_factor
-            d_y *= d_factor
-            #d_z *= d_factor
-            d_z = dz_dx * d_x + dz_dy * d_y
-            ds  = (ds_xy**2 + d_z**2)**0.5
             # gradient direction of z (b for nabla)
             b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
+            
             # accelerations
             # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
             g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
@@ -324,16 +316,18 @@ def _erode_raindrop_once(
             #    the other two get cancelled out by ground's support force
             # friction (v**2/ds = v/dt)
             #    i.e. friction does not move things on its own
+            #    also, approximate ds with ds_xy
             a_f  = friction_coeff * g_f
-            a_fx = _minabs(a_f * d_x / ds, g_x + v_x**2/ds)
-            a_fy = _minabs(a_f * d_y / ds, g_y + v_y**2/ds)
-            a_fz = _minabs(a_f * d_z / ds, g_z + v_z**2/ds)
-            a_x  = g_x - a_fx
-            a_y  = g_y - a_fy
-            a_z  = g_z - a_fz
+            a_fx = -_minabs(a_f * v_x / v, g_x + v_x**2/ds_xy)
+            a_fy = -_minabs(a_f * v_y / v, g_y + v_y**2/ds_xy)
+            a_fz = -_minabs(a_f * v_z / v, g_z + v_z**2/ds_xy)
+            a_x  = g_x + a_fx
+            a_y  = g_y + a_fy
+            a_z  = g_z + a_fz
+            
+            # get time step
             v_xy = _norm(v_x, v_y, 0.)
             a_xy = _norm(a_x, a_y, 0.)
-            # get time step
             if not np.isclose(a_xy, 0.):
                 dt  = ((v_xy**2 + 2 * a_xy * ds_xy)**0.5 - v_xy) / a_xy
             elif not np.isclose(v_xy, 0):
@@ -341,25 +335,52 @@ def _erode_raindrop_once(
             else:
                 # droplet stuck - terminate
                 break
+
+            # getting step size
+            #    normalize so that d_x**2 + d_y**2 == ds_xy
+            d_x = v_x * dt + a_x * dt**2 / 2
+            d_y = v_y * dt + a_y * dt**2 / 2
+            #d_z = v_z * dt + a_z * dt**2 / 2
+            if np.isclose(d_x**2 + d_y**2, 0.):
+                # something has gone horribly wrong
+                print("error: at s=", s, "d_x=", d_x, "d_y=", d_y)
+                break
+            d_factor = ds_xy / (d_x**2 + d_y**2)**0.5
+            d_x *= d_factor
+            d_y *= d_factor
+            #d_z *= d_factor    #d_z = dz_dx * d_x + dz_dy * d_y
+            #ds  = (ds_xy**2 + d_z**2)**0.5
+            
+            # record specific energy
+            E_old = g * p_z + v**2/2.
             # update position / direction
             p_x += d_x
             p_y += d_y
-            d_x = v_x * dt + a_x * dt**2 / 2
-            d_y = v_y * dt + a_y * dt**2 / 2
-            d_z = v_z * dt + a_z * dt**2 / 2
             # update velocity
             v_x += a_x * dt
             v_y += a_y * dt
             v_z += a_z * dt
-            ## pending optimization
-            #p_new_z, _, _ = _get_z_and_dz(p_x, p_y, data, map_widxy)
-            #v_z  = (p_z_new - p_z) / dt if dt else 0.
             v    = _norm(v_x, v_y, v_z)
-                
+            # normalize specific energy to ensure energy is conserved
+            p_z_new, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
+            d_z = p_z_new - p_z    # actual d_z that happened to the drop
+            p_z  = p_z_new
+            # Fixing E_new = E_old + _dot(a_f, d) (remove work from friction)
+            # i.e. g * p_z_new + v_new**2/2.
+            #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
+            # v2 = v**2
+            v_new = (
+                2*(E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
+                )**0.5
+            v_factor = v_new / v
+            v_x *= v_factor
+            v_y *= v_factor
+            v_z *= v_factor
+            v    = _norm(v_x, v_y, v_z)
 
             # log
             lib_z[s] = p_z
-            lib_v[s] = v
+            lib_v[s] = v_factor
             lib_E[s] = g * p_z + v**2/2.
             if abs(d_x) > 2*ds_xy or abs(d_y) > 2*ds_xy:
                 # something has gone horribly wrong
@@ -376,7 +397,7 @@ def _erode_raindrop_once(
 
 
     
-    return paths, lib_z, lib_v, lib_E, s, x_i, y_i, v, ds, dt, d_x, d_y
+    return drops, paths, lib_z, lib_v, lib_E, s, x_i, y_i, v, dt, d_x, d_y
 
 
 
