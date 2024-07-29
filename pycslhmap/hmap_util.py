@@ -183,11 +183,11 @@ def _get_z_and_dz(
 @jit(nopython=True)
 def _erode_raindrop_once(
     data: npt.NDArray[np.float64],
-    map_widxy: tuple[int, int],
-    z_seabed: float,
-    z_sealvl: float,
+    map_widxy: tuple[float, float],
+    z_seabed : float,
+    z_sealvl : float,
     max_steps_per_drop: int   = 65536,
-    turning           : float = 0.,
+    turning           : float = 0.8,
     friction_coeff    : float = 0.01,
     initial_velocity  : float = 0.1,
     g : float = 9.8,
