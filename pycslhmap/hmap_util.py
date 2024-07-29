@@ -48,7 +48,7 @@ def _hat(
 ) -> tuple[float, float, float]:
     """Get the directions of a vector as a new unit vector.
 
-    If both input are zero, will return zero vector.
+    If all v input are zero, will return zero vector.
     """
     v = _norm(v_x, v_y, v_z) #(v_x**2 + v_y**2 + v_z**2)**0.5
     if v:
@@ -104,7 +104,7 @@ def _ind_to_pos(
     """Mapping indexes to position.
     
     e.g. For a 4096**2 14336m wide map,
-        it maps [0, 4095] -> [-7168. + 3.5/2, 7168. - 3.5/2]
+        it maps [0, 4095] -> [-7168 + 3.5/2, 7168 - 3.5/2]
     """
     #return (-map_wid + map_wid/npix)/2. + map_wid/npix*ind
     return (-0.5 + (0.5 + ind)/npix) * map_wid
