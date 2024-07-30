@@ -14,7 +14,6 @@ from .hmap import HMap
 
 from typing import Self
 import numpy as np
-from numpy import pi
 from numpy import typing as npt
 import matplotlib as mpl
 

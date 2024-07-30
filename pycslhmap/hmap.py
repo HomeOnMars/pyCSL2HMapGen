@@ -15,7 +15,6 @@ from typing import Self
 
 from numba import jit, prange
 import numpy as np
-from numpy import pi
 from numpy import typing as npt
 import matplotlib as mpl
 from matplotlib import pyplot as plt
