@@ -15,7 +15,6 @@ import random
 
 from numba import jit, prange
 import numpy as np
-from numpy import pi
 from numpy import typing as npt
 
 
@@ -181,10 +180,52 @@ def _get_z_and_dz(
 
 
 @jit(nopython=True, fastmath=True)
-def _raindrop_step(
-    p_x, p_y, p_z,
+def _raindrop_hop_v_redirect(
     v_x, v_y, v_z,
     dz_dx, dz_dy,
+    E_conserv_fac   : float,
+) -> tuple[float, float, float]:
+    """Fixing the velocity direction to the tangent surface of the hmap.
+    
+    I.e., what to do if the drop hits a wall or slope
+        that forces it to change its velocity direction:
+    
+    The velocity must be constrained on the HMap surface,
+        which means that the velocity component alongside
+        the normal vector of the surface at that point
+            ( norm vec being (-dz_dx, -dz_dy, 1) )
+        is either lost (conserve momentum)
+        or redirected (conserve energy)
+        or somewhere in between.
+    """
+    # unit normal vecs of hmap surface
+    surf_x, surf_y, surf_z = _hat(-dz_dx, -dz_dy, 1.)
+    # dp for dot product
+    v_dp_surf = v_x * surf_x + v_y * surf_y + v_z * surf_z
+    v_ec = _norm(v_x, v_y, v_z)
+    # remove the part of v that directly hits surf
+    v_x -= v_dp_surf * surf_x
+    v_y -= v_dp_surf * surf_y
+    v_z -= v_dp_surf * surf_z
+    if E_conserv_fac:
+        # adding back energy as directed
+        # ec for energy-conserved
+        # mc for momentum-conserved
+        #v_ec = v
+        v_mc = _norm(v_x, v_y, v_z)
+        v_x, v_y, v_z = _hat(
+            v_x, v_y, v_z,
+            E_conserv_fac*v_ec + (1.- E_conserv_fac)*v_mc)
+    return v_x, v_y, v_z
+
+
+
+
+@jit(nopython=True, fastmath=True)
+def _raindrop_hop(
+    p_x, p_y, p_z,
+    v_x, v_y, v_z,
+    v, dz_dx, dz_dy,
     data            : npt.NDArray[np.float64],
     map_widxy       : tuple[float, float],
     map_wid_x_b     : float,
@@ -214,35 +255,6 @@ def _raindrop_step(
 
     break_state : int = 0
     
-    # - velocities direction -
-    # Fixing the velocity direction:
-    #    What to do if the drop hits a wall or slope
-    #        that forces it to change its velocity direction
-    # The velocity must be constrained on the HMap surface,
-    #     which means that the velocity component alongside
-    #     the normal vector of the surface at that point
-    #         ( norm vec being (-dz_dx, -dz_dy, 1) )
-    #     is either lost (conserve momentum)
-    #     or redirected (conserve energy) or somewhere in between
-    # unit normal vecs of hmap surface
-    surf_x, surf_y, surf_z = _hat(-dz_dx, -dz_dy, 1.)
-    # dp for dot product
-    v_dp_surf = v_x * surf_x + v_y * surf_y + v_z * surf_z
-    v_ec = _norm(v_x, v_y, v_z)
-    # remove the part of v that directly hits surf
-    v_x -= v_dp_surf * surf_x
-    v_y -= v_dp_surf * surf_y
-    v_z -= v_dp_surf * surf_z
-    if E_conserv_fac:
-        # adding back energy as directed
-        # ec for energy-conserved
-        # mc for momentum-conserved
-        #v_ec = v
-        v_mc = _norm(v_x, v_y, v_z)
-        v_x, v_y, v_z = _hat(
-            v_x, v_y, v_z,
-            E_conserv_fac*v_ec + (1.- E_conserv_fac)*v_mc)
-    v = _norm(v_x, v_y, v_z)
     
     # gradient direction of z (b for nabla)
     b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
@@ -300,7 +312,7 @@ def _raindrop_step(
             break_state,
             p_x, p_y, p_z,
             v_x, v_y, v_z,
-            dz_dx, dz_dy)
+            v, dz_dx, dz_dy)
     # getting step size
     #    normalize so that d_x**2 + d_y**2 == ds_xy
     d_x = v_x * dt + a_x * dt**2 / 2.
@@ -315,7 +327,7 @@ def _raindrop_step(
         #    break_state,
         #    p_x, p_y, p_z,
         #    v_x, v_y, v_z,
-        #    dz_dx, dz_dy)
+        #    v, dz_dx, dz_dy)
     else:
         d_factor = ds_xy / norm_d_x_y
         d_x *= d_factor
@@ -347,15 +359,18 @@ def _raindrop_step(
         # give the drop some free energy as bail out
         v2_new = 0.
     v_new = v2_new**0.5
-    if not np.isclose(v, 0.):
-        v_factor = v_new / v
-        v_x *= v_factor
-        v_y *= v_factor
-        v_z *= v_factor
-        v    = _norm(v_x, v_y, v_z)
-    elif not np.isclose(v_new, 0.):
-        v_z = -v_new
-        v_x, v_y = 0., 0.
+    if np.isclose(v, 0.):
+        v_x, v_y, v_z = 0., 0., -v_new
+    else:
+        v_x, v_y, v_z = _hat(v_x, v_y, v_z, v_new)
+
+    # - velocities direction -
+    #    What to do if the drop hits a wall or slope
+    #        that forces it to change its velocity direction
+    v_x, v_y, v_z = _raindrop_hop_v_redirect(
+        v_x, v_y, v_z, dz_dx, dz_dy, E_conserv_fac=E_conserv_fac)
+    v = _norm(v_x, v_y, v_z)
+    
 
     # check
     if (   p_x <= -map_wid_x_b
@@ -369,7 +384,7 @@ def _raindrop_step(
         break_state,
         p_x, p_y, p_z,
         v_x, v_y, v_z,
-        dz_dx, dz_dy)
+        v, dz_dx, dz_dy)
 
 
 
@@ -462,15 +477,15 @@ def _erode_raindrop_once(
         y_i : int = _pos_to_ind_d(p_y, map_wid_y, npix_y)
         drops[x_i, y_i] += 1
         paths[x_i, y_i] += 1
-        # direction (i.e. each step)
-        d_x : float = random.uniform(-ds_xy, ds_xy)
-        d_y : float = (ds_xy**2 - d_x**2)**0.5 * (random.randint(0, 1)*2 - 1)
-        d_z : float = 0.
         # velocity
-        v_x : float = initial_velocity * d_x / ds_xy
-        v_y : float = initial_velocity * d_y / ds_xy
+        v_theta = random.uniform(0., 2*np.pi)
+        v   : float = initial_velocity
+        v_x : float = v * np.sin(v_theta)
+        v_y : float = v * np.cos(v_theta)
         v_z : float = 0.
-        v   : float = _norm(v_x, v_y, v_z)
+        v_x, v_y, v_z = _raindrop_hop_v_redirect(
+            v_x, v_y, v_z, dz_dx, dz_dy, E_conserv_fac=E_conserv_fac)
+        v = _norm(v_x, v_y, v_z)
         # sediment content
         c   : float = 0.
     
@@ -483,11 +498,11 @@ def _erode_raindrop_once(
                 break_state,
                 p_x, p_y, p_z,
                 v_x, v_y, v_z,
-                dz_dx, dz_dy
-            ) = _raindrop_step(
+                v, dz_dx, dz_dy,
+            ) = _raindrop_hop(
                 p_x, p_y, p_z,
                 v_x, v_y, v_z,
-                dz_dx, dz_dy,
+                v, dz_dx, dz_dy,
                 data            = data,
                 map_widxy       = map_widxy,
                 map_wid_x_b     = map_wid_x_b,
