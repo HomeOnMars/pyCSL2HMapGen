@@ -187,8 +187,10 @@ def _erode_raindrop_once(
     z_seabed : float,
     z_sealvl : float,
     max_steps_per_drop: int   = 65536,
-    turning           : float = 0.8,
-    friction_coeff    : float = 0.01,
+    turning           : float = 0.0,
+    E_conserv_fac     : float = 0.8,
+    fric_coeff        : float = 0.01,
+    fric_stat_fac     : float = 1.0,
     initial_velocity  : float = 0.1,
     g : float = 9.8,
 ):
@@ -201,8 +203,13 @@ def _erode_raindrop_once(
     ...
     max_steps_per_drop: int
         maximum steps (i.e. distance) the rain drop is allowed to travel.
+
+    turning: float
+        if we should immediately reset velocity direction
+            to gravity direction (1.),
+            or not (0.)
         
-    turning : float
+    E_conserv_fac : float
         Switch between energy-conserved mode and momentum-conserved mode
             when the raindrop changes its direction.
          0. for momentum conservation, 1. for energy conservation.
@@ -210,13 +217,17 @@ def _erode_raindrop_once(
          Does the energy gets absorbed as the drop comes to an stop (0.),
          or does the velocity gets redirected (1.)
          
-    friction_coeff : float
-        friction coefficient. should be within 0. <= friction_coeff < 1.
+    fric_coeff : float
+        Friction coefficient. Should be within 0. <= fric_coeff < 1.
             Physics says we cannot assign friction coeff to a liquid.
             Well let's pretend we can because it's all very approximate.
 
+    fric_stat_fac: float
+        Static friction is gravity multiplied by this factor.
+        Should be smaller but close to 1.
+
     initial_velocity : float
-        initial velocity of the rain drop when spawned.
+        Initial velocity of the rain drop when spawned.
         Should be > 0.
             
     g : gravitational accceleration in m/s^2
@@ -278,6 +289,7 @@ def _erode_raindrop_once(
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
             paths[x_i, y_i] += 1
 
+            # - velocities direction -
             # Fixing the velocity direction:
             #    What to do if the drop hits a wall or slope
             #        that forces it to change its velocity direction
@@ -295,7 +307,7 @@ def _erode_raindrop_once(
             v_x -= v_dp_surf * surf_x
             v_y -= v_dp_surf * surf_y
             v_z -= v_dp_surf * surf_z
-            if turning:
+            if E_conserv_fac:
                 # adding back energy as directed
                 # ec for energy-conserved
                 # mc for momentum-conserved
@@ -303,29 +315,35 @@ def _erode_raindrop_once(
                 v_mc = _norm(v_x, v_y, v_z)
                 v_x, v_y, v_z = _hat(
                     v_x, v_y, v_z,
-                    turning*v_ec + (1.- turning)*v_mc)
+                    E_conserv_fac*v_ec + (1.- E_conserv_fac)*v_mc)
             v = _norm(v_x, v_y, v_z)
             
             # gradient direction of z (b for nabla)
             b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
             
-            # accelerations
+            # - accelerations -
             # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
             g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
             g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
             g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
             g_f =  b_z * g # for friction
+            # reset velocity to gravity directions if E_conserv_fac
+            if turning:
+                v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, 0., v)
+                v_x = (1. - turning) * v_x + turning * v_new_x
+                v_y = (1. - turning) * v_y + turning * v_new_y
+                v_z = (1. - turning) * v_z + turning * v_new_z
             # note: b_z/_norm(b_x, b_y, b_z) because
             #    the other two get cancelled out by ground's support force
             # friction (v**2/ds = v/dt)
             #    i.e. friction does not move things on its own
             #    also, approximate ds with ds_xy
-            a_f  = friction_coeff * g_f
+            a_f  = fric_coeff * g_f
             if not np.isclose(v, 0.):
                 # friction against velocity direction
-                a_fx = -_minabs(a_f * v_x / v, g_x + v_x**2/ds_xy)
-                a_fy = -_minabs(a_f * v_y / v, g_y + v_y**2/ds_xy)
-                a_fz = -_minabs(a_f * v_z / v, g_z + v_z**2/ds_xy)
+                a_fx = -_minabs(a_f*v_x/v, (g_x + v_x**2/ds_xy)*fric_stat_fac)
+                a_fy = -_minabs(a_f*v_y/v, (g_y + v_y**2/ds_xy)*fric_stat_fac)
+                a_fz = -_minabs(a_f*v_z/v, (g_z + v_z**2/ds_xy)*fric_stat_fac)
             else:
                 # static friction against gravity direction
                 g_xyz= _norm(g_x, g_y, g_z)
@@ -335,7 +353,8 @@ def _erode_raindrop_once(
             a_x  = g_x + a_fx
             a_y  = g_y + a_fy
             a_z  = g_z + a_fz
-            
+
+            # - step -
             # get time step
             v_xy = _norm(v_x, v_y)
             a_xy = _norm(a_x, a_y)
@@ -346,7 +365,6 @@ def _erode_raindrop_once(
             else:
                 # droplet stuck - terminate
                 break
-
             # getting step size
             #    normalize so that d_x**2 + d_y**2 == ds_xy
             d_x = v_x * dt + a_x * dt**2 / 2
@@ -361,7 +379,8 @@ def _erode_raindrop_once(
             d_y *= d_factor
             #d_z *= d_factor    #d_z = dz_dx * d_x + dz_dy * d_y
             #ds  = (ds_xy**2 + d_z**2)**0.5
-            
+
+            # - update -
             # record specific energy
             E_old = g * p_z + v**2/2.
             # update position / direction
@@ -399,7 +418,7 @@ def _erode_raindrop_once(
 
             # log
             lib_z[s] = p_z
-            lib_v[s] = v_factor
+            lib_v[s] = v #v_factor
             lib_E[s] = g * p_z + v**2/2.
 
             # check
