@@ -458,17 +458,16 @@ def _erode_raindrop_once(
     map_wid_x_b = map_wid_x * (0.5 - 0.5/npix_x)
     map_wid_y_b = map_wid_y * (0.5 - 0.5/npix_y)
     #assert map_wid_x == map_wid_y
+    
+    # distance per step (regardless of velocity)
+    ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.    # fixed
 
     if True:
 
-        
         # Step 1: Generate a raindrop at random locations
         
         # i for in index unit; no i for in physical unit
-        # distance per step (regardless of velocity)
-        ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.    # fixed
-        #ds    : float = ds_xy
-        dt    : float = 0.
+
         # position
         p_x : float = random.uniform(-map_wid_x_b, map_wid_x_b)
         p_y : float = random.uniform(-map_wid_y_b, map_wid_y_b)
