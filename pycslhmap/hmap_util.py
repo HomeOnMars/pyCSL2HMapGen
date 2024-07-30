@@ -34,7 +34,7 @@ def _minabs(a, b):
 
 @jit(nopython=True, fastmath=True)
 def _norm(
-    v_x: float, v_y: float, v_z: float,
+    v_x: float, v_y: float, v_z: float = 0.0,
 ) -> float:
     """Get the norm of a vector."""
     return (v_x**2 + v_y**2 + v_z**2)**0.5
@@ -337,8 +337,8 @@ def _erode_raindrop_once(
             a_z  = g_z + a_fz
             
             # get time step
-            v_xy = _norm(v_x, v_y, 0.)
-            a_xy = _norm(a_x, a_y, 0.)
+            v_xy = _norm(v_x, v_y)
+            a_xy = _norm(a_x, a_y)
             if not np.isclose(a_xy, 0.):
                 dt  = ((v_xy**2 + 2 * a_xy * ds_xy)**0.5 - v_xy) / a_xy
             elif not np.isclose(v_xy, 0):
@@ -356,7 +356,7 @@ def _erode_raindrop_once(
                 # something has gone horribly wrong
                 print("error: at s=", s, "d_x=", d_x, "d_y=", d_y)
                 break
-            d_factor = ds_xy / (d_x**2 + d_y**2)**0.5
+            d_factor = ds_xy / _norm(d_x, d_y)
             d_x *= d_factor
             d_y *= d_factor
             #d_z *= d_factor    #d_z = dz_dx * d_x + dz_dy * d_y
@@ -401,10 +401,6 @@ def _erode_raindrop_once(
             lib_z[s] = p_z
             lib_v[s] = v_factor
             lib_E[s] = g * p_z + v**2/2.
-            if abs(d_x) > 2*ds_xy or abs(d_y) > 2*ds_xy:
-                # something has gone horribly wrong
-                print("error: at s=", s, "d_x=", d_x, "d_y=", d_y)
-                break
 
             # check
             if (   p_x <= -map_wid_x_b
