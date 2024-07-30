@@ -518,7 +518,6 @@ def _erode_raindrop_once(
             x_i = _pos_to_ind_d(p_x, map_wid_x, npix_x)
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
             paths[x_i, y_i] += 1
-            v = _norm(v_x, v_y, v_z)
             lib_z[s] = p_z
             lib_v[s] = v
             lib_E[s] = g * p_z + v**2/2.
