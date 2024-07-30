@@ -329,7 +329,7 @@ def _erode_raindrop_once(
             g_f =  b_z * g # for friction
             # reset velocity to gravity directions if E_conserv_fac
             if turning:
-                v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, 0., v)
+                v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, g_z, v)
                 v_x = (1. - turning) * v_x + turning * v_new_x
                 v_y = (1. - turning) * v_y + turning * v_new_y
                 v_z = (1. - turning) * v_z + turning * v_new_z
