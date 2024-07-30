@@ -119,6 +119,7 @@ def _get_z_and_dz(
 ) -> tuple[float, float, float]:
     """Get height and gradients at specified position in physical units.
 
+    Map shape must >= 2x2.
     pos_xy in physical units, within range of [-map_widxy/2., map_widxy/2.]
 
     Returns: z, dz_dx, dz_dy
@@ -129,7 +130,7 @@ def _get_z_and_dz(
     # init
     map_wid_x, map_wid_y = map_widxy
     npix_x, npix_y = data.shape
-    assert npix_x >= 2 and npix_y >= 2    # otherwise interpolation will break
+    #assert npix_x >= 2 and npix_y >= 2    # otherwise interpolation will break
     # coord in unit of indexes
     ind_x = _pos_to_ind_f(pos_x, map_wid_x, npix_x)
     ind_y = _pos_to_ind_f(pos_y, map_wid_y, npix_y)
