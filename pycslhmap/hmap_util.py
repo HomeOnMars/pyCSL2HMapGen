@@ -181,17 +181,210 @@ def _get_z_and_dz(
 
 
 @jit(nopython=True, fastmath=True)
+def _raindrop_step(
+    p_x, p_y, p_z,
+    v_x, v_y, v_z,
+    dz_dx, dz_dy,
+    data            : npt.NDArray[np.float64],
+    map_widxy       : tuple[float, float],
+    map_wid_x_b     : float,
+    map_wid_y_b     : float,
+    ds_xy           : float,
+    turning         : float,
+    E_conserv_fac   : float,
+    fric_coeff      : float,
+    fric_static_fac : float,
+    g : float = 9.8,
+):
+    """Move the rain drop one step.
+    
+    Returns
+    -------
+        break_state,
+        p_x, p_y, p_z,
+        v_x, v_y, v_z,
+        dz_dx, dz_dy
+    -------
+    break_state: int
+        -1: can continue but step equals 0
+        0 : continue
+        1 : break due to droplet moved out of the map
+        2 : break due to droplet got stuck (v_xy==0 and a_xy==0)
+    """
+
+    break_state : int = 0
+    
+    # - velocities direction -
+    # Fixing the velocity direction:
+    #    What to do if the drop hits a wall or slope
+    #        that forces it to change its velocity direction
+    # The velocity must be constrained on the HMap surface,
+    #     which means that the velocity component alongside
+    #     the normal vector of the surface at that point
+    #         ( norm vec being (-dz_dx, -dz_dy, 1) )
+    #     is either lost (conserve momentum)
+    #     or redirected (conserve energy) or somewhere in between
+    # unit normal vecs of hmap surface
+    surf_x, surf_y, surf_z = _hat(-dz_dx, -dz_dy, 1.)
+    # dp for dot product
+    v_dp_surf = v_x * surf_x + v_y * surf_y + v_z * surf_z
+    v_ec = _norm(v_x, v_y, v_z)
+    # remove the part of v that directly hits surf
+    v_x -= v_dp_surf * surf_x
+    v_y -= v_dp_surf * surf_y
+    v_z -= v_dp_surf * surf_z
+    if E_conserv_fac:
+        # adding back energy as directed
+        # ec for energy-conserved
+        # mc for momentum-conserved
+        #v_ec = v
+        v_mc = _norm(v_x, v_y, v_z)
+        v_x, v_y, v_z = _hat(
+            v_x, v_y, v_z,
+            E_conserv_fac*v_ec + (1.- E_conserv_fac)*v_mc)
+    v = _norm(v_x, v_y, v_z)
+    
+    # gradient direction of z (b for nabla)
+    b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
+    
+    # - accelerations -
+    # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
+    g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
+    g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
+    g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
+    g_f =  b_z * g # for friction
+    # reset velocity to gravity directions if E_conserv_fac
+    if turning:
+        v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, 0., v)
+        v_x = (1. - turning) * v_x + turning * v_new_x
+        v_y = (1. - turning) * v_y + turning * v_new_y
+        v_z = (1. - turning) * v_z + turning * v_new_z
+        v_x, v_y, v_z = _hat(v_x, v_y, v_z, v)
+    # note: b_z/_norm(b_x, b_y, b_z) because
+    #    the other two get cancelled out by ground's support force
+    # friction (v**2/ds = v/dt)
+    #    i.e. friction does not move things on its own
+    #    also, approximate ds with ds_xy
+    a_f  = fric_coeff * g_f
+    if not np.isclose(v, 0.):
+        # friction against velocity direction
+        a_fx = -_minabs(a_f*v_x/v, (g_x + v_x**2/ds_xy))
+        a_fy = -_minabs(a_f*v_y/v, (g_y + v_y**2/ds_xy))
+        a_fz = -_minabs(a_f*v_z/v, (g_z + v_z**2/ds_xy))
+    else:
+        # static friction against gravity direction
+        g_xyz= _norm(g_x, g_y, g_z)
+        if not np.isclose(g_xyz, 0.):
+            a_fx = -_minabs(a_f * g_x / g_xyz, g_x) * fric_static_fac
+            a_fy = -_minabs(a_f * g_y / g_xyz, g_y) * fric_static_fac
+            a_fz = -_minabs(a_f * g_z / g_xyz, g_z) * fric_static_fac
+        else:
+            a_fx, a_fy, a_fz = 0., 0., 0.
+    a_x  = g_x + a_fx
+    a_y  = g_y + a_fy
+    a_z  = g_z + a_fz
+
+    # - step -
+    # get time step
+    v_xy = _norm(v_x, v_y)
+    a_xy = _norm(a_x, a_y)
+    if not np.isclose(a_xy, 0.):
+        dt  = ((v_xy**2 + 2 * a_xy * ds_xy)**0.5 - v_xy) / a_xy
+    elif not np.isclose(v_xy, 0):
+        dt  = ds_xy / v_xy
+    else:
+        # droplet stuck - terminate
+        break_state = 2
+        #break
+        return (
+            break_state,
+            p_x, p_y, p_z,
+            v_x, v_y, v_z,
+            dz_dx, dz_dy)
+    # getting step size
+    #    normalize so that d_x**2 + d_y**2 == ds_xy
+    d_x = v_x * dt + a_x * dt**2 / 2.
+    d_y = v_y * dt + a_y * dt**2 / 2.
+    #d_z = v_z * dt + a_z * dt**2 / 2
+    norm_d_x_y = _norm(d_x, d_y)
+    if np.isclose(norm_d_x_y, 0.):
+        # break due to 0-sized step
+        break_state = -1
+        ##break
+        #return (
+        #    break_state,
+        #    p_x, p_y, p_z,
+        #    v_x, v_y, v_z,
+        #    dz_dx, dz_dy)
+    else:
+        d_factor = ds_xy / norm_d_x_y
+        d_x *= d_factor
+        d_y *= d_factor
+    #d_z *= d_factor    #d_z = dz_dx * d_x + dz_dy * d_y
+    #ds  = (ds_xy**2 + d_z**2)**0.5
+
+    # - update -
+    # record specific energy
+    E_old = g * p_z + v**2/2.
+    # update position / direction
+    p_x += d_x
+    p_y += d_y
+    # update velocity
+    v_x += a_x * dt
+    v_y += a_y * dt
+    v_z += a_z * dt
+    v    = _norm(v_x, v_y, v_z)
+    # normalize specific energy to ensure energy is conserved
+    p_z_new, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
+    d_z = p_z_new - p_z    # actual d_z that happened to the drop
+    p_z = p_z_new
+    # Fixing E_new = E_old + _dot(a_f, d) (remove work from friction)
+    # i.e. g * p_z_new + v_new**2/2.
+    #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
+    # v2 = v**2
+    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
+    if v2_new < 0.:
+        # give the drop some free energy as bail out
+        v2_new = 0.
+    v_new = v2_new**0.5
+    if not np.isclose(v, 0.):
+        v_factor = v_new / v
+        v_x *= v_factor
+        v_y *= v_factor
+        v_z *= v_factor
+        v    = _norm(v_x, v_y, v_z)
+    elif not np.isclose(v_new, 0.):
+        v_z = -v_new
+        v_x, v_y = 0., 0.
+
+    # check
+    if (   p_x <= -map_wid_x_b
+        or p_x >=  map_wid_x_b
+        or p_y <= -map_wid_y_b
+        or p_y >=  map_wid_y_b):
+        # droplet out of bounds- terminate
+        break_state = 1
+        #break
+    return (
+        break_state,
+        p_x, p_y, p_z,
+        v_x, v_y, v_z,
+        dz_dx, dz_dy)
+
+
+
+@jit(nopython=True, fastmath=True)
 def _erode_raindrop_once(
     data: npt.NDArray[np.float64],
     map_widxy: tuple[float, float],
     z_seabed : float,
     z_sealvl : float,
     max_steps_per_drop: int   = 65536,
-    turning           : float = 0.0,
+    initial_velocity  : float = 0.1,
+    turning           : float = 0.1,
     E_conserv_fac     : float = 0.8,
     fric_coeff        : float = 0.01,
-    fric_stat_fac     : float = 1.0,
-    initial_velocity  : float = 0.1,
+    fric_static_fac   : float = 1.0,
     g : float = 9.8,
 ):
     """Erosion.
@@ -222,7 +415,7 @@ def _erode_raindrop_once(
             Physics says we cannot assign friction coeff to a liquid.
             Well let's pretend we can because it's all very approximate.
 
-    fric_stat_fac: float
+    fric_static_fac: float
         Static friction is gravity multiplied by this factor.
         Should be smaller but close to 1.
 
@@ -254,7 +447,7 @@ def _erode_raindrop_once(
     if True:
 
         
-        # step 1: Generate a raindrop at random locations
+        # Step 1: Generate a raindrop at random locations
         
         # i for in index unit; no i for in physical unit
         # distance per step (regardless of velocity)
@@ -268,6 +461,7 @@ def _erode_raindrop_once(
         x_i : int = _pos_to_ind_d(p_x, map_wid_x, npix_x)
         y_i : int = _pos_to_ind_d(p_y, map_wid_y, npix_y)
         drops[x_i, y_i] += 1
+        paths[x_i, y_i] += 1
         # direction (i.e. each step)
         d_x : float = random.uniform(-ds_xy, ds_xy)
         d_y : float = (ds_xy**2 - d_x**2)**0.5 * (random.randint(0, 1)*2 - 1)
@@ -282,156 +476,50 @@ def _erode_raindrop_once(
     
         for s in range(max_steps_per_drop):
         
-            # step 2: Simulate physics for the droplet to slide downhill
-    
-            # init
+            # Step 2: Simulate physics for the droplet to slide downhill
+
+            # evolve
+            (
+                break_state,
+                p_x, p_y, p_z,
+                v_x, v_y, v_z,
+                dz_dx, dz_dy
+            ) = _raindrop_step(
+                p_x, p_y, p_z,
+                v_x, v_y, v_z,
+                dz_dx, dz_dy,
+                data            = data,
+                map_widxy       = map_widxy,
+                map_wid_x_b     = map_wid_x_b,
+                map_wid_y_b     = map_wid_y_b,
+                ds_xy           = ds_xy,
+                turning         = turning,
+                E_conserv_fac   = E_conserv_fac,
+                fric_coeff      = fric_coeff,
+                fric_static_fac = fric_static_fac,
+                g = g,
+            )
+
+            # log
             x_i = _pos_to_ind_d(p_x, map_wid_x, npix_x)
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
             paths[x_i, y_i] += 1
-
-            # - velocities direction -
-            # Fixing the velocity direction:
-            #    What to do if the drop hits a wall or slope
-            #        that forces it to change its velocity direction
-            # The velocity must be constrained on the HMap surface,
-            #     which means that the velocity component alongside
-            #     the normal vector of the surface at that point
-            #         ( norm vec being (-dz_dx, -dz_dy, 1) )
-            #     is either lost (conserve momentum)
-            #     or redirected (conserve energy) or somewhere in between
-            # unit normal vecs of hmap surface
-            surf_x, surf_y, surf_z = _hat(-dz_dx, -dz_dy, 1.)
-            # dp for dot product
-            v_dp_surf = v_x * surf_x + v_y * surf_y + v_z * surf_z
-            # remove the part of v that directly hits surf
-            v_x -= v_dp_surf * surf_x
-            v_y -= v_dp_surf * surf_y
-            v_z -= v_dp_surf * surf_z
-            if E_conserv_fac:
-                # adding back energy as directed
-                # ec for energy-conserved
-                # mc for momentum-conserved
-                v_ec = v
-                v_mc = _norm(v_x, v_y, v_z)
-                v_x, v_y, v_z = _hat(
-                    v_x, v_y, v_z,
-                    E_conserv_fac*v_ec + (1.- E_conserv_fac)*v_mc)
             v = _norm(v_x, v_y, v_z)
-            
-            # gradient direction of z (b for nabla)
-            b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
-            
-            # - accelerations -
-            # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
-            g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
-            g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
-            g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
-            g_f =  b_z * g # for friction
-            # reset velocity to gravity directions if E_conserv_fac
-            if turning:
-                v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, g_z, v)
-                v_x = (1. - turning) * v_x + turning * v_new_x
-                v_y = (1. - turning) * v_y + turning * v_new_y
-                v_z = (1. - turning) * v_z + turning * v_new_z
-            # note: b_z/_norm(b_x, b_y, b_z) because
-            #    the other two get cancelled out by ground's support force
-            # friction (v**2/ds = v/dt)
-            #    i.e. friction does not move things on its own
-            #    also, approximate ds with ds_xy
-            a_f  = fric_coeff * g_f
-            if not np.isclose(v, 0.):
-                # friction against velocity direction
-                a_fx = -_minabs(a_f*v_x/v, (g_x + v_x**2/ds_xy)*fric_stat_fac)
-                a_fy = -_minabs(a_f*v_y/v, (g_y + v_y**2/ds_xy)*fric_stat_fac)
-                a_fz = -_minabs(a_f*v_z/v, (g_z + v_z**2/ds_xy)*fric_stat_fac)
-            else:
-                # static friction against gravity direction
-                g_xyz= _norm(g_x, g_y, g_z)
-                a_fx = -_minabs(a_f * g_x / g_xyz, g_x)
-                a_fy = -_minabs(a_f * g_y / g_xyz, g_y)
-                a_fz = -_minabs(a_f * g_z / g_xyz, g_z)
-            a_x  = g_x + a_fx
-            a_y  = g_y + a_fy
-            a_z  = g_z + a_fz
-
-            # - step -
-            # get time step
-            v_xy = _norm(v_x, v_y)
-            a_xy = _norm(a_x, a_y)
-            if not np.isclose(a_xy, 0.):
-                dt  = ((v_xy**2 + 2 * a_xy * ds_xy)**0.5 - v_xy) / a_xy
-            elif not np.isclose(v_xy, 0):
-                dt  = ds_xy / v_xy
-            else:
-                # droplet stuck - terminate
-                break
-            # getting step size
-            #    normalize so that d_x**2 + d_y**2 == ds_xy
-            d_x = v_x * dt + a_x * dt**2 / 2
-            d_y = v_y * dt + a_y * dt**2 / 2
-            #d_z = v_z * dt + a_z * dt**2 / 2
-            if np.isclose(d_x**2 + d_y**2, 0.):
-                # something has gone horribly wrong
-                print("error: at s=", s, "d_x=", d_x, "d_y=", d_y)
-                break
-            d_factor = ds_xy / _norm(d_x, d_y)
-            d_x *= d_factor
-            d_y *= d_factor
-            #d_z *= d_factor    #d_z = dz_dx * d_x + dz_dy * d_y
-            #ds  = (ds_xy**2 + d_z**2)**0.5
-
-            # - update -
-            # record specific energy
-            E_old = g * p_z + v**2/2.
-            # update position / direction
-            p_x += d_x
-            p_y += d_y
-            # update velocity
-            v_x += a_x * dt
-            v_y += a_y * dt
-            v_z += a_z * dt
-            v    = _norm(v_x, v_y, v_z)
-            # normalize specific energy to ensure energy is conserved
-            p_z_new, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
-            d_z = p_z_new - p_z    # actual d_z that happened to the drop
-            p_z  = p_z_new
-            # Fixing E_new = E_old + _dot(a_f, d) (remove work from friction)
-            # i.e. g * p_z_new + v_new**2/2.
-            #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
-            # v2 = v**2
-            v2_new = (
-                2*(E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
-                )
-            if v2_new < 0.:
-                # give the drop some free energy as bail out
-                v2_new = 0.
-            v_new = v2_new**0.5
-            if not np.isclose(v, 0.):
-                v_factor = v_new / v
-                v_x *= v_factor
-                v_y *= v_factor
-                v_z *= v_factor
-                v    = _norm(v_x, v_y, v_z)
-            elif not np.isclose(v_new, 0.):
-                v_z = -v_new
-                v_x, v_y = 0., 0.
-
-            # log
             lib_z[s] = p_z
-            lib_v[s] = v #v_factor
+            lib_v[s] = v
             lib_E[s] = g * p_z + v**2/2.
 
+
+            # Step 3: Do erosion / deposition
+
+            # *** Add code here ***
+            
+
             # check
-            if (   p_x <= -map_wid_x_b
-                or p_x >=  map_wid_x_b
-                or p_y <= -map_wid_y_b
-                or p_y >=  map_wid_y_b):
-                # droplet out of bounds- terminate
+            if break_state > 0:
                 break
-
-
     
-    return drops, paths, lib_z, lib_v, lib_E, s, x_i, y_i, v, dt, d_x, d_y
+    return drops, paths, s, lib_z, lib_v, lib_E, x_i, y_i, v_x, v_y, v_z, break_state
 
 
 
