@@ -564,7 +564,7 @@ def _erode_raindrop_test(
             #    In a stable river, [Sediment flow] * [Sediment median size]
             #    is proportional to [   Water flow] * [Slope]
             # Ignoring sediment size, sediment capacity can be
-            sed_c = max(sediment_cap_fac * v * slope, 0.)
+            sed_c = max(sediment_cap_fac * slope, 0.)
 
             # sediment mass to be absorbed into the water
             sed_d = sed_c - sed_m
