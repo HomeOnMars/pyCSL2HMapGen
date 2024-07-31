@@ -258,16 +258,26 @@ def _raindrop_hop(
     
     
     # gradient direction of z (b for nabla)
-    b_x, b_y, b_z = _hat(dz_dx, dz_dy, 1.)
+    # note that the surface norm vector is (-dz_dx, -dz_dy, 1.),
+    # And the gradient should be in the same vertical plane of the surf norm,
+    #    (i.e. it's perpendicular to (-dz_dy, dz_dx, 0.) )
+    #    while being a linear combination of the 2 tangent vectors of the surf:
+    #        (1./dz_dx, 0, 1.) and (0., 1./dz_dy, 1.)
+    # i.e.,
+    b_x, b_y, b_z = _hat(dz_dx, dz_dy, dz_dx**2+dz_dy**2)
     
     # - accelerations -
     # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
-    g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
-    g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
-    g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
-    g_f =  b_z * g # for friction
-    # reset velocity to gravity directions if E_conserv_fac
-    if turning:
+    if np.isclose(_norm(b_x, b_y, b_z), 0.):
+        # perfectly flat
+        g_x, g_y, g_z, g_f = 0., 0., 0., g
+    else:
+        g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
+        g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
+        g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
+        g_f =  b_z * g # for friction
+    # reset velocity to gravity directions if turning
+    if turning and not np.isclose(_norm(g_x, g_y), 0.):
         v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, 0., v)
         v_x = (1. - turning) * v_x + turning * v_new_x
         v_y = (1. - turning) * v_y + turning * v_new_y
@@ -342,28 +352,48 @@ def _raindrop_hop(
     # update position / direction
     p_x += d_x
     p_y += d_y
-    # update velocity
-    v_x += a_x * dt
-    v_y += a_y * dt
-    v_z += a_z * dt
-    v    = _norm(v_x, v_y, v_z)
-    # normalize specific energy to ensure energy is conserved
     p_z_new, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
     d_z = p_z_new - p_z    # actual d_z that happened to the drop
-    p_z = p_z_new
-    # Fixing E_new = E_old + _dot(a_f, d) (remove work from friction)
+    # Update velocity and Fix Energy
+    # Obtaining E_new = E_old + _dot(a_f, d) (remove work from friction)
     # i.e. g * p_z_new + v_new**2/2.
     #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
     # v2 = v**2
-    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
+    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z_new)
     if v2_new < 0.:
-        # give the drop some free energy as bail out
-        v2_new = 0.
-    v_new = v2_new**0.5
-    if np.isclose(v, 0.):
-        v_x, v_y, v_z = 0., 0., -v_new
+        # the rain drop should be reflected back.
+        # Cancel step
+        p_x -= d_x
+        p_y -= d_y
+        # Reflect velocities
+        #    it should be perpendicular to surf norm vec,
+        #        and maintain the same v, with v_z_new = -v_z.
+        # So,
+        #    -v_x_new = (dz_dy / dz_dx) * (v_y_new + v_y) + v_x
+        # and
+        #    v_x_new**2 + v_y_new**2 = v_x**2 + v_y**2
+        # Solve above two equations and we find:
+        if not np.isclose(dz_dx, 0.):
+            tmp = dz_dy/dz_dx
+            v_y_new = ((1 - tmp**2)*v_y - 2*tmp*v_x) / (tmp**2 + 1)
+            v_x_new =  -tmp * (v_y_new + v_y) - v_x
+        else:
+            v_y_new = -v_y
+            v_x_new = v_x
+        v_x, v_y, v_z = v_x_new, v_y_new, -v_z
     else:
-        v_x, v_y, v_z = _hat(v_x, v_y, v_z, v_new)
+        p_z = p_z_new
+        v_new = v2_new**0.5
+        # update velocity
+        v_x += a_x * dt
+        v_y += a_y * dt
+        v_z += a_z * dt
+        v    = _norm(v_x, v_y, v_z)
+        # normalize specific energy to ensure energy is conserved
+        if np.isclose(v, 0.):
+            v_x, v_y, v_z = 0., 0., -v_new
+        else:
+            v_x, v_y, v_z = _hat(v_x, v_y, v_z, v_new)
 
     # - velocities direction -
     #    What to do if the drop hits a wall or slope
