@@ -390,11 +390,12 @@ def _raindrop_hop(
 
 
 @jit(nopython=True, fastmath=True)
-def _erode_raindrop_once(
+def _erode_raindrop_test(
     data: npt.NDArray[np.float64],
     map_widxy: tuple[float, float],
     z_seabed : float,
     z_sealvl : float,
+    ndrop    : int = 1,
     max_steps_per_drop: int   = 65536,
     initial_velocity  : float = 0.1,
     turning           : float = 0.1,
@@ -402,6 +403,8 @@ def _erode_raindrop_once(
     fric_coeff        : float = 0.01,
     fric_static_fac   : float = 1.0,
     g : float = 9.8,
+    sediment_cap_fac  : float = 1.0,
+    initial_sediment  : float = 0.0,
 ):
     """Erosion.
 
@@ -410,10 +413,17 @@ def _erode_raindrop_once(
     Parameters
     ----------
     ...
-    max_steps_per_drop: int
+    ndrop : int
+        How many raindrops we are simulating.
+    
+    max_steps_per_drop : int
         maximum steps (i.e. distance) the rain drop is allowed to travel.
 
-    turning: float
+    initial_velocity : float
+        Initial velocity of the rain drop when spawned.
+        Should be > 0.
+        
+    turning : float
         if we should immediately reset velocity direction
             to gravity direction (1.),
             or not (0.)
@@ -431,27 +441,42 @@ def _erode_raindrop_once(
             Physics says we cannot assign friction coeff to a liquid.
             Well let's pretend we can because it's all very approximate.
 
-    fric_static_fac: float
+    fric_static_fac : float
         Static friction is gravity multiplied by this factor.
         Should be smaller but close to 1.
-
-    initial_velocity : float
-        Initial velocity of the rain drop when spawned.
-        Should be > 0.
             
     g : gravitational accceleration in m/s^2
+
+    sediment_cap_fac : float
+        Sediment capacity factor of the river:
+            sediment capacity per speed per slope, in unit of s/m,
+        with the sediment capacity being
+            the sediment mass carried by water per water mass,
+        and the slope being meters droped per meter moved horizontally
+
+    initial_sediment : float
+        initial sediment content in the rain drop
+    ...
+
+    Returns
+    ----------
     ...
     """
 
-    raise NotImplementedError
+    print("*** Warning: Test code- currently broken.")
 
     # init
-    drops = np.zeros_like(data, dtype=np.int64)    # initial drops position
-    paths = np.zeros_like(data, dtype=np.int64)    # counts of passing drops
+    drops = np.zeros_like(data, dtype=np.uint32)    # initial drops position
+    paths = np.zeros_like(data, dtype=np.uint64)    # counts of passing drops
     lib_z = np.zeros(max_steps_per_drop)
     lib_v = np.zeros(max_steps_per_drop)
     # specific energy (i.e. energy per mass)
     lib_E = np.zeros(max_steps_per_drop)
+    lib_sed=np.zeros(max_steps_per_drop)
+
+    steps = np.zeros(ndrop, dtype=np.uint32)    # step count for each rain drop
+    stats = np.zeros(ndrop, dtype=np.int8)    # break_states for each rain drop
+    
 
     npix_x, npix_y = data.shape
     map_wid_x, map_wid_y = map_widxy
@@ -463,7 +488,7 @@ def _erode_raindrop_once(
     # distance per step (regardless of velocity)
     ds_xy : float = (map_wid_x/npix_x + map_wid_y/npix_y)/2.    # fixed
 
-    if True:
+    for i in prange(ndrop):
 
         # Step 1: Generate a raindrop at random locations
         
@@ -486,8 +511,10 @@ def _erode_raindrop_once(
         v_x, v_y, v_z = _raindrop_hop_v_redirect(
             v_x, v_y, v_z, dz_dx, dz_dy, E_conserv_fac=E_conserv_fac)
         v = _norm(v_x, v_y, v_z)
-        # sediment content
-        c   : float = 0.
+        # sediments
+        slope: float = 0.    # height droped: + for downhill, - for uphill
+        sed_c: float = 0.    # sediment capacity
+        sed_m: float = 0.    # sediment mass
     
         for s in range(max_steps_per_drop):
         
@@ -496,7 +523,7 @@ def _erode_raindrop_once(
             # evolve
             (
                 break_state,
-                p_x, p_y, p_z,
+                p_x, p_y, p_z_new,
                 v_x, v_y, v_z,
                 v, dz_dx, dz_dy,
             ) = _raindrop_hop(
@@ -515,6 +542,11 @@ def _erode_raindrop_once(
                 g = g,
             )
 
+            # info
+            slope = -(p_z_new - p_z) / ds_xy
+            p_z = p_z_new
+            
+
             # log
             x_i = _pos_to_ind_d(p_x, map_wid_x, npix_x)
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
@@ -527,13 +559,40 @@ def _erode_raindrop_once(
             # Step 3: Do erosion / deposition
 
             # *** Add code here ***
+
+            # Recall Lane's Equation:
+            #    In a stable river, [Sediment flow] * [Sediment median size]
+            #    is proportional to [   Water flow] * [Slope]
+            # Ignoring sediment size, sediment capacity can be
+            sed_c = max(sediment_cap_fac * v * slope, 0.)
+
+            # sediment mass to be absorbed into the water
+            sed_d = sed_c - sed_m
+            lib_sed[s] = sed_d
+
+            # erode
+            # *** to be improved ***
+            data[x_i, y_i] -= sed_d
+            sed_m += sed_d
+            # if sed_d > 0:
+            #    data[x_i, y_i] -= sed_d
+            #    sed_m += sed_d
+            # elif sed_d < 0:
+            #    data[x_i, y_i] -= sed_d
+            #    sed_m += sed_d
+                
             
 
             # check
             if break_state > 0:
                 break
+                
+        # finally
+        steps[i] = s
+        stats[i] = break_state
+        
     
-    return drops, paths, s, lib_z, lib_v, lib_E, x_i, y_i, v_x, v_y, v_z, break_state
+    return stats, steps, drops, paths, lib_z, lib_v, lib_E, lib_sed
 
 
 
