@@ -347,24 +347,26 @@ def _raindrop_hop(
     #ds  = (ds_xy**2 + d_z**2)**0.5
 
     # - update -
-    # record specific energy
-    E_old = g * p_z + v**2/2.
+    # record original
+    p_x_old, p_y_old, p_z_old = p_x, p_y, p_z
+    dz_dx_old, dz_dy_old = dz_dx, dz_dy
+    E_old = g * p_z + v**2/2.    # specific energy
     # update position / direction
     p_x += d_x
     p_y += d_y
-    p_z_new, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
-    d_z = p_z_new - p_z    # actual d_z that happened to the drop
+    p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
+    d_z = p_z - p_z_old    # actual d_z that happened to the drop
     # Update velocity and Fix Energy
     # Obtaining E_new = E_old + _dot(a_f, d) (remove work from friction)
-    # i.e. g * p_z_new + v_new**2/2.
+    # i.e. g * p_z + v_new**2/2.
     #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
     # v2 = v**2
-    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z_new)
+    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
     if v2_new < 0.:
         # the rain drop should be reflected back.
         # Cancel step
-        p_x -= d_x
-        p_y -= d_y
+        p_x, p_y, p_z = p_x_old, p_y_old, p_z_old
+        dz_dx, dz_dy  = dz_dx_old, dz_dy_old
         # Reflect velocities
         #    it should be perpendicular to surf norm vec,
         #        and maintain the same v, with v_z_new = -v_z.
@@ -382,7 +384,6 @@ def _raindrop_hop(
             v_x_new = v_x
         v_x, v_y, v_z = v_x_new, v_y_new, -v_z
     else:
-        p_z = p_z_new
         v_new = v2_new**0.5
         # update velocity
         v_x += a_x * dt
