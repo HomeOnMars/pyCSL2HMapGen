@@ -584,6 +584,7 @@ class HMap:
         nslim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
         welim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
         interp_order : int = 3,
+        interp_mode  : str = 'constant',
         z_seabed     : None|float = None,
         verbose      : bool = True,
         **kwargs,
@@ -650,7 +651,8 @@ class HMap:
             np.meshgrid(x_coord, y_coord, indexing='ij'), axis=0)
         ans = HMap(self.copy_meta_only())
         ans.data = map_coordinates(
-            self.data, xy_coords, order=interp_order, cval=z_seabed, **kwargs)
+            self.data, xy_coords,
+            order=interp_order, mode=interp_mode, cval=z_seabed, **kwargs)
         ans._map_widxy = (
             self._map_widxy[0] * nslim_npix / self._npix_xy[0],
             self._map_widxy[1] * welim_npix / self._npix_xy[1],

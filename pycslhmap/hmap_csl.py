@@ -355,8 +355,9 @@ class CSL2HMap(HMap):
         new_scale    : float|tuple[float, float, float],
         new_center_ip: tuple[float, float] = (0., 0.),
         interp_order : int = 3,
+        interp_mode  : str = 'nearest',
         z_seabed_new : None|float = None,
-        #z_sealvl_new : float = None,
+        z_sealvl_new : float = None,
         verbose      : bool = True,
         **kwargs,
     ) -> Self:
@@ -365,7 +366,7 @@ class CSL2HMap(HMap):
         Parameters
         ----------
         new_scale: float|tuple[float, float, float]
-            [z, NS/x, WE/y]
+            if tuple, provide scales in order of [z, NS/x, WE/y]
             Zoomed out level (New : Old = 1 : ?)
             i.e. the new 1 meter is the old ? meter
             
@@ -383,7 +384,7 @@ class CSL2HMap(HMap):
         """
 
         # normalize input parameters
-        if z_seabed is None: z_seabed = self.z_seabed
+        if z_seabed_new is None: z_seabed_new = self.z_seabed
         try: len(new_scale)
         except TypeError: new_scale = [new_scale]
         if len(new_scale) < self._ndim+1:
@@ -395,7 +396,7 @@ class CSL2HMap(HMap):
         # + 0.5 because how self.resample assumes things
         lim_center_ii = np.array(self.pos_to_ind_f(new_center_ip)) + 0.5
         lim_half_wid_ii = np.array([
-            npix / 2. / scale
+            npix / 2. * scale
             for npix, scale in zip(self._npix_xy, new_scale[1:])])
         lim_left_ii  = lim_center_ii - lim_half_wid_ii
         lim_right_ii = lim_center_ii + lim_half_wid_ii
@@ -405,11 +406,12 @@ class CSL2HMap(HMap):
             nslim_in_ind = (lim_left_ii[0], lim_right_ii[0]),
             welim_in_ind = (lim_left_ii[1], lim_right_ii[1]),
             interp_order = interp_order,
+            interp_mode  = interp_mode,
             z_seabed     = z_seabed_new,
             verbose      = verbose,
             **kwargs,
         )
-        ans = CSL2HMap.copy()
+        ans = self.copy()
         ans.data = res.data / new_scale[0]
         ans.normalize()
         return ans
