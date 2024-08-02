@@ -140,7 +140,7 @@ class HMap:
     @property
     def ndim(self) -> int:
         """Data dimensions. Should always be 2."""
-        return len(self.npix_xy)
+        return self.data.ndim
 
     @property
     def map_widxy(self) -> tuple[float, float]:
@@ -712,11 +712,15 @@ class HMap:
         interp_order : int = 3,
         interp_mode  : str = 'nearest',
         z_min_new: None|float = None,
-        z_sea_new: float = None,
+        z_sea_new: None|float = None,
         verbose: bool = True,
         **kwargs,
     ) -> Self:
-        """Re-scale the HMap.
+        """Re-scale the HMap such that sea level stay the same.
+
+        Note:
+            z < self.z_sea will scale differently regardless of new scale,
+            so that self.z_sea -> z_sea_new and self.z_min -> z_min_new
         
         Parameters
         ----------
@@ -736,6 +740,9 @@ class HMap:
 
         z_min_new: None|float
             Elevate the HMap to the New seabed height.
+
+        z_sea_new: New sea level.
+            Heights will be increased so old sea level meets the new one.
         """
 
         # normalize input parameters
@@ -767,10 +774,23 @@ class HMap:
             verbose      = verbose,
             **kwargs,
         )
-        ans = self.copy()
-        ans.data = res.data/new_scale[0] + z_min_new - self.z_min/new_scale[0]
-        ans.z_sea= z_sea_new
+        ans = self.copy()   # force using self's meta data
+        # normalize
+        if np.isclose(self.z_sea, self.z_min):
+            ans.data = (res.data - self.z_min)/new_scale[0] + z_sea_new
+        else:
+            # bs_scale_inv: below sea scale inversed
+            bs_scale_inv = (z_sea_new - z_min_new) / (self.z_sea - self.z_min)
+            ans.data = np.where(
+                res.data < z_sea_new,
+                (res.data - self.z_min)*bs_scale_inv + z_min_new,
+                (res.data - self.z_sea)/new_scale[0] + z_sea_new,
+            )
+        ans.data  = np.where(ans.data < z_min_new, z_min_new, ans.data)
+        ans.z_sea = z_sea_new
+        ans.z_min = z_min_new
         ans.normalize()
+        
         return ans
     
     
@@ -785,7 +805,7 @@ class HMap:
         
         Inspired by Sebastian Lague's Erosion code (
             See https://github.com/SebLague/Hydraulic-Erosion
-        ) who was in turn inspired by Hans Theobald Beyer's Bachelor's Thesis
+        ) who in turn was inspired by Hans Theobald Beyer's Bachelor's Thesis
             'Implementation of a method for hydraulic erosion'.
         """
         
