@@ -75,7 +75,7 @@ class HMap:
     def __init__(
         self,
         data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
-        map_width : None|float|tuple[float, float] = None,   # = 14*256
+        map_width : None|float|tuple[float, float] = None,
         pix_width : None|float|tuple[float, float] = 1.,
         z_min: float = 0.,
         z_sea: float = 0.,
@@ -103,32 +103,8 @@ class HMap:
                 z_sea  = data.z_sea
             data = data.data.copy()
         data = np.array(data, dtype=np.float64)
-            
-        len_map_width : int = 0
-        try: len_map_width = len(map_width)  # tuple?
-        except TypeError: len_map_width = 0  # No.
-            
-        len_pix_width : int = 0
-        try: len_pix_width = len(pix_width)  # tuple?
-        except TypeError: len_pix_width = 0  # No.
-            
-        # set each element to pixel width if it's None
-        if pix_width is None: pix_width = 1.
-        map_width_new = np.zeros(len(data.shape), dtype=np.float64)
-        for i_mw in range(len(data.shape)):
-            mw = None
-            if i_mw < len_map_width:
-                mw  = map_width[i_mw]
-            elif len_map_width == 0:
-                mw  = map_width
-            if mw is None:
-                mw = data.shape[i_mw]
-                if i_mw < len_pix_width and pix_width[i_mw] is not None:
-                    mw *= pix_width[i_mw]
-                elif len_pix_width == 0 and pix_width is not None:
-                    mw *= pix_width
-            map_width_new[i_mw] = mw
-        map_width = tuple(map_width_new)
+        map_width = self._get_map_wid_from_pix_wid(
+            data.shape, map_width, pix_width)
                 
                 
         # variables
@@ -146,6 +122,45 @@ class HMap:
         
         # do things
         self.normalize()
+
+
+    @staticmethod
+    def _get_map_wid_from_pix_wid(
+        data_shape: tuple[int, int],
+        map_width : None|float|tuple[float, float] = None,
+        pix_width : None|float|tuple[float, float] = 1.,
+    ) -> tuple[float, float]:
+        """Normalize map width from map_width and/or pix_width.
+
+        Returns map_width as a tuple.
+        """
+        
+        len_map_width : int = 0
+        try: len_map_width = len(map_width)  # tuple?
+        except TypeError: len_map_width = 0  # No.
+            
+        len_pix_width : int = 0
+        try: len_pix_width = len(pix_width)  # tuple?
+        except TypeError: len_pix_width = 0  # No.
+            
+        # set each element to pixel width if it's None
+        if pix_width is None: pix_width = 1.
+        map_width_new = np.zeros(len(data_shape), dtype=np.float64)
+        for i_mw in range(len(data_shape)):
+            mw = None
+            if i_mw < len_map_width:
+                mw  = map_width[i_mw]
+            elif len_map_width == 0:
+                mw  = map_width
+            if mw is None:
+                mw = data_shape[i_mw]
+                if i_mw < len_pix_width and pix_width[i_mw] is not None:
+                    mw *= pix_width[i_mw]
+                elif len_pix_width == 0 and pix_width is not None:
+                    mw *= pix_width
+            map_width_new[i_mw] = mw
+        map_width = tuple(map_width_new)
+        return map_width
 
 
     
