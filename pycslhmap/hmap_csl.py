@@ -65,24 +65,32 @@ class CSL2HMap(HMap):
         i.e. the scale of the height.
         In CSL2 it is 4096 by default.
 
+    map_type : {'worldmap', 'playable'}
+        type of the map.
+        
     map_name : str
         name of the map. For saving purposes.
-        
+
+    npix : int
+        no of pixel in x and y dimensions.
+    
+    npix_8 : int
+        == npix / 8
+
 
     Private:
 
-    _map_type : {'worldmap', 'playable'}
-        type of the map.
-
-    _npix : int
-        no of pixel in x and y dimensions.
-    
-    _npix_8 : int
-        == _npix / 8
-        
+    _map_type : str
     
     ---------------------------------------------------------------------------
     """
+
+    
+
+    #-------------------------------------------------------------------------#
+    #    Meta: Initialize
+    #-------------------------------------------------------------------------#
+
 
     def __init__(
         self,
@@ -121,10 +129,6 @@ class CSL2HMap(HMap):
         self._map_type: str   = map_type
         self.map_name : str   = map_name
         self.z_max    : float = z_max
-
-        # vars yet to be set
-        self._npix    : int   = 0
-        self._npix_8  : int   = 0
         
         
         # do things
@@ -142,30 +146,44 @@ class CSL2HMap(HMap):
 
 
     
+    @property
+    def npix(self) -> int:
+        """Number of pixels in x and y dimensions. Should be 4096."""
+        return self.npix_xy[0]
+
+    @property
+    def npix_8(self) -> int:
+        """1/8th of the number of pixels per dim. Should be 512."""
+        return int(self.npix / 8)
+
+    @property
+    def map_type(self) -> str:
+        """type of the map. In {'worldmap', 'playable'}."""
+        return self._map_type
+
+
+    
     def normalize(self, verbose:bool=True) -> Self:
         """Resetting parameters and do safety checks."""
 
         super().normalize()
-        
-        # variables
-        
-        # no of pixel: defining map resolution
-        self._npix   = self.npix_xy[0]
-        self._npix_8 = int(self._npix / 8)
             
         # safety checks
         assert self.ndim == 2
         assert self.npix_xy[0] == self.npix_xy[1]
-        assert self._npix == self.data.shape[0]
-        assert self._npix == self.npix_xy[1]
-        assert self._npix == self._npix_8 * 8
-        assert self._npix == NPIX_CSL2
+        assert self.npix == self.npix_xy[0]
+        assert self.npix == self.npix_8 * 8
+        assert self.npix == NPIX_CSL2
         
         return self
 
 
 
-    
+    #-------------------------------------------------------------------------#
+    #    Meta: magic methods
+    #-------------------------------------------------------------------------#
+
+
     def __repr__(self):
         return f"""CSL2 {self._map_type} {self.map_name} {super().__repr__()}
 # CSL2-specific data
@@ -311,8 +329,8 @@ class CSL2HMap(HMap):
         assert self._map_type == 'worldmap'
 
         ans = self.resample(
-            nslim_in_ind=(3*self._npix_8, 5*self._npix_8),
-            welim_in_ind=(3*self._npix_8, 5*self._npix_8),
+            nslim_in_ind=(3*self.npix_8, 5*self.npix_8),
+            welim_in_ind=(3*self.npix_8, 5*self.npix_8),
             new_npix_xy=(NPIX_CSL2, NPIX_CSL2),  **kwargs,
         )
         
@@ -336,15 +354,15 @@ class CSL2HMap(HMap):
         assert self._map_type == 'worldmap'
 
         res = playable_hmap.resample(
-            nslim_in_ind=(0, self._npix),
-            welim_in_ind=(0, self._npix),
-            new_npix_xy=(self._npix_8*2, self._npix_8*2), **kwargs,
+            nslim_in_ind=(0, self.npix),
+            welim_in_ind=(0, self.npix),
+            new_npix_xy=(self.npix_8*2, self.npix_8*2), **kwargs,
         )
 
         ans = self.copy()
         ans.data[
-            3*self._npix_8 : 5*self._npix_8,
-            3*self._npix_8 : 5*self._npix_8,
+            3*self.npix_8 : 5*self.npix_8,
+            3*self.npix_8 : 5*self.npix_8,
         ] = res.data
         
         return ans

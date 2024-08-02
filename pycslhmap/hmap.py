@@ -131,6 +131,28 @@ class HMap:
         self.normalize()
 
 
+    
+    @property
+    def npix_xy(self) -> tuple[int, int]:
+        """Data shape. i.e. number of pixel in each dim."""
+        return self.data.shape
+
+    @property
+    def ndim(self) -> int:
+        """Data dimensions. Should always be 2."""
+        return len(self.npix_xy)
+
+    @property
+    def map_widxy(self) -> tuple[float, float]:
+        """Map width in meters (i.e. whatever unit self.data is in).
+        
+        It's 57344 for CSL2 world map, and 14336 for CSL2 playable area.
+        (Because 57344 = 3.5*4*4096).
+        """
+        return self._map_widxy
+        
+
+
     @staticmethod
     def _get_map_wid_from_pix_wid(
         data_shape: tuple[int, int],
@@ -186,26 +208,6 @@ class HMap:
         assert self.z_sea >= 0
         
         return self
-
-
-
-    @property
-    def npix_xy(self) -> tuple[int, int]:
-        """Data shape. i.e. number of pixel in each dim."""
-        return self.data.shape
-
-    @property
-    def ndim(self) -> int:
-        """Data dimensions. Should always be 2."""
-        return len(self.npix_xy)
-
-    @property
-    def map_widxy(self) -> tuple[float, float]:
-        """Map width in meters (i.e. whatever unit self.data is in).
-        
-        It's 57344 for CSL2 world map, and 14336 for CSL2 playable area.
-        (Because 57344 = 3.5*4*4096)"""
-        return self._map_widxy
 
     
 
