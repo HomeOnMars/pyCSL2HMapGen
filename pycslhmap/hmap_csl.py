@@ -380,11 +380,12 @@ class CSL2HMap(HMap):
             used by scipy.ndimage.map_coordinates().
 
         z_seabed_new: None|float
-            new seabed height.
+            Elevate the HMap to the New seabed height.
         """
 
         # normalize input parameters
         if z_seabed_new is None: z_seabed_new = self.z_seabed
+        if z_sealvl_new is None: z_sealvl_new = self.z_sealvl
         try: len(new_scale)
         except TypeError: new_scale = [new_scale]
         if len(new_scale) < self._ndim+1:
@@ -412,7 +413,8 @@ class CSL2HMap(HMap):
             **kwargs,
         )
         ans = self.copy()
-        ans.data = res.data / new_scale[0]
+        ans.data = res.data/new_scale[0] + (z_seabed_new - self.z_seabed/new_scale[0])
+        ans.z_sealvl = z_sealvl_new
         ans.normalize()
         return ans
         
