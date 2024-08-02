@@ -43,14 +43,14 @@ class HMap:
             1) 2D,
             2) postive in every pixel,
 
-    z_seabed : float
+    z_min : float
         Seabed height in meters. Must be positive.
         Defines the minimum height of self.data
 
-    z_sealvl : float
+    z_sea : float
         Sea level height in meters. Must be positive.
         Defines the height of the ocean.
-        Every pixel in self.data below self.z_sealvl is considered in the sea.
+        Every pixel in self.data below self.z_sea is considered in the sea.
 
 
     Private:
@@ -77,8 +77,8 @@ class HMap:
         data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
         map_width : None|float|tuple[float, float] = None,   # = 14*256
         pix_width : None|float|tuple[float, float] = 1.,
-        z_seabed  : float = 0.,
-        z_sealvl  : float = 0.,
+        z_min: float = 0.,
+        z_sea: float = 0.,
         use_data_meta: bool  = True,
     ):
         """Init.
@@ -99,8 +99,8 @@ class HMap:
         if isinstance(data, HMap):
             if use_data_meta:
                 map_width = data._map_widxy
-                z_seabed  = data.z_seabed
-                z_sealvl  = data.z_sealvl
+                z_min  = data.z_min
+                z_sea  = data.z_sea
             data = data.data.copy()
         data = np.array(data, dtype=np.float64)
             
@@ -133,11 +133,11 @@ class HMap:
                 
         # variables
         
-        self.data  : npt.NDArray[np.float64] = data
+        self.data: npt.NDArray[np.float64] = data
         # note: will normalize float into tuple of floats later
-        self._map_widxy : tuple[float, float] = map_width
-        self.z_seabed   : float = z_seabed
-        self.z_sealvl   : float = z_sealvl
+        self._map_widxy: tuple[float, float] = map_width
+        self.z_min: float = z_min
+        self.z_sea: float = z_sea
         
         # vars yet to be set
         self._ndim      : int             = 2
@@ -166,8 +166,8 @@ class HMap:
             
         # safety checks
         assert self._ndim == 2
-        assert self.z_seabed >= 0
-        assert self.z_sealvl >= 0
+        assert self.z_min >= 0
+        assert self.z_sea >= 0
         
         return self
 
@@ -185,8 +185,8 @@ class HMap:
 # Height data insight
     Average height: {np.average(self.data):.2f} +/- {np.std(self.data):.2f}
     Height  range : [{np.min(self.data):.2f}, {np.max(self.data):.2f}]
-    Seabed height : {self.z_seabed = :.2f}
-    Sea level     : {self.z_sealvl = :.2f}
+    Seabed height : {self.z_min = :.2f}
+    Sea level     : {self.z_sea = :.2f}
         """
 
 
@@ -289,12 +289,12 @@ class HMap:
     
     def load_png(
         self,
-        filename     : str,
-        map_width    : float|tuple[float, float],    # 57344. wm / 14336. pa
-        height_scale : float = 4096.,
-        z_seabed     : float = 64.,
-        z_sealvl     : float = 128.,
-        verbose      : bool  = True,
+        filename : str,
+        map_width: float|tuple[float, float],    # 57344. wm / 14336. pa
+        z_max: float = 4096.,
+        z_min: float = 64.,
+        z_sea: float = 128.,
+        verbose: bool= True,
     ) -> Self:
         """Load height map from a png file.
         
@@ -306,7 +306,7 @@ class HMap:
         map_width: float or [float, float]
             [x, y]-widths of the map in meters.
 
-        height_scale: float
+        z_max: float
             max height in meters storable in the data,
             i.e. the scale of the height.
         
@@ -321,16 +321,16 @@ class HMap:
         if verbose: print(".", end='')
         pixels = np.array(
             pixels).reshape( (npix_x, npix_y)
-        ) * (height_scale / 2**bit_depth)
+        ) * (z_max / 2**bit_depth)
         
         if verbose: print(".", end='')
 
         #self.__init__(pixels, map_width=map_width,
-        #              z_seabed=z_seabed, z_sealvl=z_sealvl,)
-        self.data = np.array(pixels, dtype=np.float64)
+        #              z_min=z_min, z_sea=z_sea,)
+        self.data  = np.array(pixels, dtype=np.float64)
         self._map_widxy = map_width
-        self.z_seabed   = z_seabed
-        self.z_sealvl   = z_sealvl
+        self.z_min = z_min
+        self.z_sea = z_sea
         self.normalize()
         
         
@@ -346,39 +346,39 @@ class HMap:
 
     def save_png(
         self,
-        filename     : str,
-        bit_depth    : int = 16,
-        height_scale : None|float = 4096.,
-        compression  : int = 9,    # maximum compression
-        verbose      : bool = True,
+        filename : str,
+        bit_depth: int = 16,
+        z_max: None|float = 4096.,
+        compression: int = 9,    # maximum compression
+        verbose: bool = True,
     ) -> Self:
         """Save to a png file."""
 
-        if height_scale is None:
-            height_scale = np.max(self.data) + 1
+        if z_max is None:
+            z_max = np.max(self.data) + 1
 
         self.normalize()
 
         # safety check
         if verbose:
-            nbad_pixels = np.count_nonzero(self.data < self.z_seabed)
-            noverflowed = np.count_nonzero(self.data > height_scale)
+            nbad_pixels = np.count_nonzero(self.data < self.z_min)
+            noverflowed = np.count_nonzero(self.data > z_max)
             if nbad_pixels:
                 print(
                     f"\n**  Warning: Data have {nbad_pixels} "
                     + f"({nbad_pixels/self.data.size*100:6.1f} %) "
                     + "bad pixels where data < seabed height.\n"
                     + "These pixels will be replaced by seabed height "
-                    + f"{self.z_seabed = }"
+                    + f"{self.z_min = }"
                 )
             if noverflowed:
                 print(
                     f"\n**  Warning: Data have {noverflowed} "
                     + f"({noverflowed/self.data.size*100:6.1f} %) "
                     + f"overflowed pixels where data > height scale "
-                    + f"{height_scale = }.\n"
+                    + f"{z_max = }.\n"
                     + "These pixels will be replaced by maximum height "
-                    + f"{(2**bit_depth - 1) / 2**bit_depth * height_scale = }"
+                    + f"{(2**bit_depth - 1) / 2**bit_depth * z_max = }"
                 )
             if nbad_pixels or noverflowed:
                 print(self)
@@ -403,13 +403,13 @@ class HMap:
         
         # convert from float to uint, for saving
         ans = np.where(
-            self.data >= height_scale,
+            self.data >= z_max,
             2**bit_depth - 1,    # overflowed
             (np.where(
-                self.data < self.z_seabed,
-                self.z_seabed,   # bad pixel
+                self.data < self.z_min,
+                self.z_min,   # bad pixel
                 self.data,       # good data
-            )) / (height_scale / 2**bit_depth),
+            )) / (z_max / 2**bit_depth),
         ).astype(ans_dtype)
 
         if verbose: print(f'.', end='')
@@ -440,7 +440,7 @@ class HMap:
         figsize : tuple[int, int] = (8, 6),
         norm    : None|str|mpl.colors.Normalize = 'default',
         add_cbar: bool = True,
-        z_sealvl: None|float = None,
+        z_sea: None|float = None,
         **kwargs,
     ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
         """Return a plot of the data.
@@ -453,22 +453,22 @@ class HMap:
         """
 
         # init
-        if z_sealvl is None:
-            z_sealvl = self.z_sealvl
+        if z_sea is None:
+            z_sea = self.z_sea
         if norm == 'default':
-            norm = mpl.colors.Normalize(vmin=self.z_seabed - z_sealvl)
+            norm = mpl.colors.Normalize(vmin=self.z_min - z_sea)
 
         # plot things
         if fig is None or ax is None:
             fig, ax = plt.subplots(figsize=figsize)
-        cax  = ax.imshow(self.data - z_sealvl, norm=norm, **kwargs)
+        cax  = ax.imshow(self.data - z_sea, norm=norm, **kwargs)
         if add_cbar:
             cmap = fig.colorbar(cax)
             cmap.set_label('Meters above sea level')
         ax.set_title(
             "Height Map\n" +
-            f"(Seabed: {self.z_seabed:.0f}m above zero point; " +
-            f"{z_sealvl - self.z_seabed:.0f}m below sea)")
+            f"(Seabed: {self.z_min:.0f}m above zero point; " +
+            f"{z_sea - self.z_min:.0f}m below sea)")
 
         # update tick labels
         tick_locs = tuple([
@@ -501,7 +501,7 @@ class HMap:
         ax  : None|mpl.axes.Axes     = None,
         figsize : tuple[int, int] = (8, 6),
         add_cbar: bool = True,
-        z_sealvl: None|float = None,
+        z_sea: None|float = None,
         rotate_azim_deg: float = 30.,
         **kwargs,
     ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
@@ -516,8 +516,8 @@ class HMap:
             rotate the plot w.r.t. z axis
         ...
         """
-        if z_sealvl is None:
-            z_sealvl = self.z_sealvl
+        if z_sea is None:
+            z_sea = self.z_sea
         if fig is None:
             fig = plt.figure(figsize = figsize)
         if ax is None:
@@ -541,7 +541,7 @@ class HMap:
 
         # plot
         cax = ax.plot_surface(
-            xy_coords[0], xy_coords[1], self.data - z_sealvl,
+            xy_coords[0], xy_coords[1], self.data - z_sea,
             cmap=mpl.cm.coolwarm,
         )
         if add_cbar:
@@ -585,8 +585,8 @@ class HMap:
         welim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
         interp_order : int = 3,
         interp_mode  : str = 'constant',
-        z_seabed     : None|float = None,
-        verbose      : bool = True,
+        z_min: None|float = None,
+        verbose: bool = True,
         **kwargs,
     ) -> Self:
         """Return a new obj with resampled HMap.
@@ -616,13 +616,13 @@ class HMap:
             The order of the spline interpolation,
             used by scipy.ndimage.map_coordinates().
 
-        z_seabed: None|float
+        z_min: None|float
             min val of the hmap. Used when extrapolating.
             if None, will use the value stored in self.
         """
 
         # init
-        if z_seabed     is None: z_seabed     = self.z_seabed
+        if z_min is None: z_min = self.z_min
         if nslim_in_ind is None: nslim_in_ind = (0, self._npix_xy[0])
         if welim_in_ind is None: welim_in_ind = (0, self._npix_xy[1])
 
@@ -652,7 +652,7 @@ class HMap:
         ans = HMap(self.copy_meta_only())
         ans.data = map_coordinates(
             self.data, xy_coords,
-            order=interp_order, mode=interp_mode, cval=z_seabed, **kwargs)
+            order=interp_order, mode=interp_mode, cval=z_min, **kwargs)
         ans._map_widxy = (
             self._map_widxy[0] * nslim_npix / self._npix_xy[0],
             self._map_widxy[1] * welim_npix / self._npix_xy[1],
