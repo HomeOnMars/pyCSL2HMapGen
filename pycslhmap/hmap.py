@@ -37,7 +37,7 @@ class HMap:
     
     Public:
     
-    data       : (self._npix_xy)-shaped numpy array (np.float64)
+    data       : (self.npix_xy)-shaped numpy array (np.float64)
         Contains height map data in meters.
         MUST be:
             1) 2D,
@@ -51,20 +51,24 @@ class HMap:
         Sea level height in meters. Must be positive.
         Defines the height of the ocean.
         Every pixel in self.data below self.z_sea is considered in the sea.
-
-
-    Private:
         
-    _ndim      : int = 2
-        dimensions. Should always be 2.
+    ndim : int = 2
+        [Read-only]
+        Data Dimensions. Should always be 2.
 
-    _npix_xy   : tuple[int, int]
+    npix_xy : tuple[int, int]
+        [Read-only]
         Data shape. i.e. number of pixel in each dim.
-        
-    _map_widxy : tuple[float, float]
+
+    map_widxy : tuple[float, float]
+        [Read-only]
         map width in meters (i.e. whatever unit self.data is in).
         It's 57344. for CSL2 world map, and 14336. for CSL2 playable area.
         (Because 57344 = 3.5*4*4096)
+
+
+    Private:
+    _map_widxy : tuple[float, float]
 
 
         
@@ -72,6 +76,13 @@ class HMap:
     ---------------------------------------------------------------------------
     """
 
+    
+
+    #-------------------------------------------------------------------------#
+    #    Meta: Initialize
+    #-------------------------------------------------------------------------#
+
+    
     def __init__(
         self,
         data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
@@ -114,10 +125,6 @@ class HMap:
         self._map_widxy: tuple[float, float] = map_width
         self.z_min: float = z_min
         self.z_sea: float = z_sea
-        
-        # vars yet to be set
-        self._ndim      : int             = 2
-        self._npix_xy   : tuple[int, int] = (0, 0)
 
         
         # do things
@@ -160,6 +167,7 @@ class HMap:
                     mw *= pix_width
             map_width_new[i_mw] = mw
         map_width = tuple(map_width_new)
+        
         return map_width
 
 
@@ -167,32 +175,50 @@ class HMap:
     def normalize(self, verbose:bool=True) -> Self:
         """Resetting parameters and do safety checks."""
         
-        # variables
-        
-        # no of pixel: defining map resolution
-        self._npix_xy   = self.data.shape
-        self._ndim      = len(self._npix_xy)
-
-        try:
-            len(self._map_widxy)
+        try: len(self._map_widxy)
         except TypeError:
             self._map_widxy = tuple([
-                self._map_widxy for i in range(self._ndim)])
+                self._map_widxy for i in range(self.ndim)])
             
         # safety checks
-        assert self._ndim == 2
+        assert self.ndim  == 2
         assert self.z_min >= 0
         assert self.z_sea >= 0
         
         return self
 
 
+
+    @property
+    def npix_xy(self) -> tuple[int, int]:
+        """Data shape. i.e. number of pixel in each dim."""
+        return self.data.shape
+
+    @property
+    def ndim(self) -> int:
+        """Data dimensions. Should always be 2."""
+        return len(self.npix_xy)
+
+    @property
+    def map_widxy(self) -> tuple[float, float]:
+        """Map width in meters (i.e. whatever unit self.data is in).
+        
+        It's 57344 for CSL2 world map, and 14336 for CSL2 playable area.
+        (Because 57344 = 3.5*4*4096)"""
+        return self._map_widxy
+
+    
+
+    #-------------------------------------------------------------------------#
+    #    Meta: magic methods
+    #-------------------------------------------------------------------------#
+
     
     def __repr__(self):
         return f"""Height map object:
 
 # Meta data
-    Pixels shape  : {self.data.shape = } | {self._npix_xy = }
+    Pixels shape  : {self.data.shape = } | {self.npix_xy = }
     Map Widths    : NS/y {self._map_widxy[0]:.2f},\
     WE/x {self._map_widxy[1]:.2f},\
     with {len(self._map_widxy) = }
@@ -250,8 +276,8 @@ class HMap:
             it maps [-7168., 7168.] -> [-0.5, 4095.5]
         """
         return (
-            _pos_to_ind_f(pos[0], self._map_widxy[0], self._npix_xy[0]),
-            _pos_to_ind_f(pos[1], self._map_widxy[1], self._npix_xy[1]),
+            _pos_to_ind_f(pos[0], self._map_widxy[0], self.npix_xy[0]),
+            _pos_to_ind_f(pos[1], self._map_widxy[1], self.npix_xy[1]),
         )
 
     def pos_to_ind_d(
@@ -264,10 +290,10 @@ class HMap:
             it maps [-7168., 7168.] -> [0, 4095]
         """
         ans = [
-            _pos_to_ind_d(pos[i], self._map_widxy[i], self._npix_xy[i])
-            for i in self._ndim
+            _pos_to_ind_d(pos[i], self._map_widxy[i], self.npix_xy[i])
+            for i in self.ndim
         ]
-        for i in self._ndim:
+        for i in self.ndim:
             # safety check
             if ans[i] < 0:
                 ans[i] = 0
@@ -275,8 +301,8 @@ class HMap:
                     print("*   Warning: HMap.pos_to_ind_d():"
                         + f"Input lies outside the map."
                         + f"Answer reset to {ans[i]}")
-            elif ans[i] >= self._npix_xy[i]:
-                ans[i] = self._npix_xy[i] - 1
+            elif ans[i] >= self.npix_xy[i]:
+                ans[i] = self.npix_xy[i] - 1
                 if verbose:
                     print("*   Warning: HMap.pos_to_ind_d():"
                         + f"Input lies outside the map."
@@ -292,8 +318,8 @@ class HMap:
             it maps [0, 4095] -> [-7168 + 3.5/2, 7168 - 3.5/2]
         """
         return (
-            _ind_to_pos(ind[0], self._map_widxy[0], self._npix_xy[0]),
-            _ind_to_pos(ind[1], self._map_widxy[1], self._npix_xy[1]),
+            _ind_to_pos(ind[0], self._map_widxy[0], self.npix_xy[0]),
+            _ind_to_pos(ind[1], self._map_widxy[1], self.npix_xy[1]),
         )
         
     
@@ -487,12 +513,12 @@ class HMap:
 
         # update tick labels
         tick_locs = tuple([
-            np.linspace(0, self._npix_xy[i], 9, dtype=np.int64)
+            np.linspace(0, self.npix_xy[i], 9, dtype=np.int64)
             for i in range(2)
         ])
         tick_vals = tuple([
-            (0.5 - tick_locs[0] / self._npix_xy[0]      ) * self._map_widxy[0],
-            (      tick_locs[1] / self._npix_xy[1] - 0.5) * self._map_widxy[1],
+            (0.5 - tick_locs[0] / self.npix_xy[0]      ) * self._map_widxy[0],
+            (      tick_locs[1] / self.npix_xy[1] - 0.5) * self._map_widxy[1],
         ])
         tick_labels = tuple([
             [f'{tick_val:.0f}' for tick_val in tick_vals[i]]
@@ -541,16 +567,16 @@ class HMap:
         # figure out coordinates
         x_coord  = np.linspace(
             _ind_to_pos(
-                0,                  self._map_widxy[0], self._npix_xy[0]),
+                0,                  self._map_widxy[0], self.npix_xy[0]),
             _ind_to_pos(
-                self._npix_xy[0]-1, self._map_widxy[0], self._npix_xy[0]),
-            self._npix_xy[0], endpoint=True)
+                self.npix_xy[0]-1, self._map_widxy[0], self.npix_xy[0]),
+            self.npix_xy[0], endpoint=True)
         y_coord  = np.linspace(
             _ind_to_pos(
-                0,                  self._map_widxy[1], self._npix_xy[1]),
+                0,                  self._map_widxy[1], self.npix_xy[1]),
             _ind_to_pos(
-                self._npix_xy[1]-1, self._map_widxy[1], self._npix_xy[1]),
-            self._npix_xy[1], endpoint=True)
+                self.npix_xy[1]-1, self._map_widxy[1], self.npix_xy[1]),
+            self.npix_xy[1], endpoint=True)
         xy_coords= np.stack(
             np.meshgrid(x_coord, y_coord, indexing='ij'), axis=0)
 
@@ -622,7 +648,7 @@ class HMap:
                 if the original data is in shape of (256, 256).
                 i.e. elements with index of [128:256, 0:128]
             Do NOT Supply negative number (won't work).
-            if None, will use (0, self._npix_xy[0]) or (0, self._npix_xy[1]).
+            if None, will use (0, self.npix_xy[0]) or (0, self.npix_xy[1]).
 
         new_npix_xy: tuple[int, int]
             new HMap resolution in x and y.
@@ -638,8 +664,8 @@ class HMap:
 
         # init
         if z_min is None: z_min = self.z_min
-        if nslim_in_ind is None: nslim_in_ind = (0, self._npix_xy[0])
-        if welim_in_ind is None: welim_in_ind = (0, self._npix_xy[1])
+        if nslim_in_ind is None: nslim_in_ind = (0, self.npix_xy[0])
+        if welim_in_ind is None: welim_in_ind = (0, self.npix_xy[1])
 
         nslim_npix = abs(nslim_in_ind[1] - nslim_in_ind[0])    # x width
         welim_npix = abs(welim_in_ind[1] - welim_in_ind[0])    # y width
@@ -669,14 +695,84 @@ class HMap:
             self.data, xy_coords,
             order=interp_order, mode=interp_mode, cval=z_min, **kwargs)
         ans._map_widxy = (
-            self._map_widxy[0] * nslim_npix / self._npix_xy[0],
-            self._map_widxy[1] * welim_npix / self._npix_xy[1],
+            self._map_widxy[0] * nslim_npix / self.npix_xy[0],
+            self._map_widxy[1] * welim_npix / self.npix_xy[1],
         )
         ans.normalize()
         return ans
-        
-    
 
+
+    
+    def rescale(
+        self,
+        new_scale    : float|tuple[float, float, float],
+        new_center_ip: tuple[float, float] = (0., 0.),
+        interp_order : int = 3,
+        interp_mode  : str = 'nearest',
+        z_min_new: None|float = None,
+        z_sea_new: float = None,
+        verbose: bool = True,
+        **kwargs,
+    ) -> Self:
+        """Re-scale the HMap.
+        
+        Parameters
+        ----------
+        new_scale: float|tuple[float, float, float]
+            if tuple, provide scales in order of [z, NS/x, WE/y]
+            Zoomed out level (New : Old = 1 : ?)
+            i.e. the new 1 meter is the old ? meter
+            
+        new_center_ip: tuple[float, float]
+            The center of the new hmap is at the old hmap coordinates of..?
+            ip = in_pos (i.e. in physical space,
+            i.e. in meters instead of indexes)
+        
+        interp_order: int
+            The order of the spline interpolation,
+            used by scipy.ndimage.map_coordinates().
+
+        z_min_new: None|float
+            Elevate the HMap to the New seabed height.
+        """
+
+        # normalize input parameters
+        if z_min_new is None: z_min_new = self.z_min
+        if z_sea_new is None: z_sea_new = self.z_sea
+        try: len(new_scale)
+        except TypeError: new_scale = [new_scale]
+        if len(new_scale) < self.ndim+1:
+            new_scale = tuple([
+                new_scale[i] if i < len(new_scale) else new_scale[-1]
+                for i in range(self.ndim+1)])
+
+        # ii = in_ind (i.e. in index space)
+        # + 0.5 because how self.resample assumes things
+        lim_center_ii = np.array(self.pos_to_ind_f(new_center_ip)) + 0.5
+        lim_half_wid_ii = np.array([
+            npix / 2. * scale
+            for npix, scale in zip(self.npix_xy, new_scale[1:])])
+        lim_left_ii  = lim_center_ii - lim_half_wid_ii
+        lim_right_ii = lim_center_ii + lim_half_wid_ii
+        
+        res = self.resample(
+            new_npix_xy  = self.npix_xy,
+            nslim_in_ind = (lim_left_ii[0], lim_right_ii[0]),
+            welim_in_ind = (lim_left_ii[1], lim_right_ii[1]),
+            interp_order = interp_order,
+            interp_mode  = interp_mode,
+            z_min        = z_min_new,
+            verbose      = verbose,
+            **kwargs,
+        )
+        ans = self.copy()
+        ans.data = res.data/new_scale[0] + z_min_new - self.z_min/new_scale[0]
+        ans.z_sea= z_sea_new
+        ans.normalize()
+        return ans
+    
+    
+    
     #-------------------------------------------------------------------------#
     #    Erosion
     #-------------------------------------------------------------------------#

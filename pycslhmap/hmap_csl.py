@@ -150,14 +150,14 @@ class CSL2HMap(HMap):
         # variables
         
         # no of pixel: defining map resolution
-        self._npix   = self._npix_xy[0]
+        self._npix   = self.npix_xy[0]
         self._npix_8 = int(self._npix / 8)
             
         # safety checks
-        assert self._ndim == 2
-        assert self.data.shape[0] == self.data.shape[1]
+        assert self.ndim == 2
+        assert self.npix_xy[0] == self.npix_xy[1]
         assert self._npix == self.data.shape[0]
-        assert self._npix == self._npix_xy[1]
+        assert self._npix == self.npix_xy[1]
         assert self._npix == self._npix_8 * 8
         assert self._npix == NPIX_CSL2
         
@@ -347,76 +347,6 @@ class CSL2HMap(HMap):
             3*self._npix_8 : 5*self._npix_8,
         ] = res.data
         
-        return ans
-
-
-    
-    def rescale(
-        self,
-        new_scale    : float|tuple[float, float, float],
-        new_center_ip: tuple[float, float] = (0., 0.),
-        interp_order : int = 3,
-        interp_mode  : str = 'nearest',
-        z_min_new: None|float = None,
-        z_sea_new: float = None,
-        verbose: bool = True,
-        **kwargs,
-    ) -> Self:
-        """Re-scale the HMap.
-        
-        Parameters
-        ----------
-        new_scale: float|tuple[float, float, float]
-            if tuple, provide scales in order of [z, NS/x, WE/y]
-            Zoomed out level (New : Old = 1 : ?)
-            i.e. the new 1 meter is the old ? meter
-            
-        new_center_ip: tuple[float, float]
-            The center of the new hmap is at the old hmap coordinates of..?
-            ip = in_pos (i.e. in physical space,
-            i.e. in meters instead of indexes)
-        
-        interp_order: int
-            The order of the spline interpolation,
-            used by scipy.ndimage.map_coordinates().
-
-        z_min_new: None|float
-            Elevate the HMap to the New seabed height.
-        """
-
-        # normalize input parameters
-        if z_min_new is None: z_min_new = self.z_min
-        if z_sea_new is None: z_sea_new = self.z_sea
-        try: len(new_scale)
-        except TypeError: new_scale = [new_scale]
-        if len(new_scale) < self._ndim+1:
-            new_scale = tuple([
-                new_scale[i] if i < len(new_scale) else new_scale[-1]
-                for i in range(self._ndim+1)])
-
-        # ii = in_ind (i.e. in index space)
-        # + 0.5 because how self.resample assumes things
-        lim_center_ii = np.array(self.pos_to_ind_f(new_center_ip)) + 0.5
-        lim_half_wid_ii = np.array([
-            npix / 2. * scale
-            for npix, scale in zip(self._npix_xy, new_scale[1:])])
-        lim_left_ii  = lim_center_ii - lim_half_wid_ii
-        lim_right_ii = lim_center_ii + lim_half_wid_ii
-        
-        res = self.resample(
-            new_npix_xy  = self._npix_xy,
-            nslim_in_ind = (lim_left_ii[0], lim_right_ii[0]),
-            welim_in_ind = (lim_left_ii[1], lim_right_ii[1]),
-            interp_order = interp_order,
-            interp_mode  = interp_mode,
-            z_min        = z_min_new,
-            verbose      = verbose,
-            **kwargs,
-        )
-        ans = self.copy()
-        ans.data = res.data/new_scale[0] + z_min_new - self.z_min/new_scale[0]
-        ans.z_sea= z_sea_new
-        ans.normalize()
         return ans
         
     
