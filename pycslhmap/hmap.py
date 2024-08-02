@@ -9,7 +9,7 @@ Author: HomeOnMars
 
 
 # Dependencies
-from .hmap_util import _ind_to_pos
+from .hmap_util import _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d
 
 from typing import Self
 
@@ -197,7 +197,7 @@ class HMap:
     
 
     #-------------------------------------------------------------------------#
-    #    Meta
+    #    Meta: Copying
     #-------------------------------------------------------------------------#
 
     
@@ -220,6 +220,67 @@ class HMap:
         return ans
     
 
+
+    #-------------------------------------------------------------------------#
+    #    Meta: Mapping coordinates
+    #-------------------------------------------------------------------------#
+
+
+    def pos_to_ind_f(
+        self, pos: tuple[float, float],
+    ) -> tuple[float, float]:
+        """Mapping position to indexes.
+        
+        e.g. For a 4096**2 14336m wide map,
+            it maps [-7168., 7168.] -> [-0.5, 4095.5]
+        """
+        return (
+            _pos_to_ind_f(pos[0], self._map_widxy[0], self._npix_xy[0]),
+            _pos_to_ind_f(pos[1], self._map_widxy[1], self._npix_xy[1]),
+        )
+
+    def pos_to_ind_d(
+        self, pos: tuple[float, float],
+        verbose: bool = True,
+    ) -> tuple[int, int]:
+        """Mapping position to indexes.
+        
+        e.g. For a 4096**2 14336m wide map,
+            it maps [-7168., 7168.] -> [0, 4095]
+        """
+        ans = [
+            _pos_to_ind_d(pos[i], self._map_widxy[i], self._npix_xy[i])
+            for i in self._ndim
+        ]
+        for i in self._ndim:
+            # safety check
+            if ans[i] < 0:
+                ans[i] = 0
+                if verbose:
+                    print("*   Warning: HMap.pos_to_ind_d():"
+                        + f"Input lies outside the map."
+                        + f"Answer reset to {ans[i]}")
+            elif ans[i] >= self._npix_xy[i]:
+                ans[i] = self._npix_xy[i] - 1
+                if verbose:
+                    print("*   Warning: HMap.pos_to_ind_d():"
+                        + f"Input lies outside the map."
+                        + f"Answer reset to {ans[i]}")
+        return tuple(ans)
+
+    def ind_to_pos(
+        self, ind: tuple[int, int]|tuple[float, float],
+    ) -> tuple[float, float]:
+        """Mapping indexes to position.
+        
+        e.g. For a 4096**2 14336m wide map,
+            it maps [0, 4095] -> [-7168 + 3.5/2, 7168 - 3.5/2]
+        """
+        return (
+            _ind_to_pos(ind[0], self._map_widxy[0], self._npix_xy[0]),
+            _ind_to_pos(ind[1], self._map_widxy[1], self._npix_xy[1]),
+        )
+        
     
     #-------------------------------------------------------------------------#
     #    I/O

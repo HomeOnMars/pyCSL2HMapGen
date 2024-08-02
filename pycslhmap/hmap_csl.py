@@ -347,6 +347,58 @@ class CSL2HMap(HMap):
         ] = res.data
         
         return ans
+
+
+    
+    def rescale(
+        self,
+        new_scale: float|tuple[float, float, float],
+        interp_order : int = 3,
+        z_seabed     : None|float = None,
+        z_sealvl_new : float = None,
+        verbose      : bool = True,
+        **kwargs,
+    ) -> Self:
+        """Re-scale the HMap.
+        
+        Parameters
+        ----------
+        new_scale: float|tuple[float, float, float]
+            [z, NS/x, WE/y]
+            Zoomed out level. New : Old = 1 : ?
+            
+            
+        
+        interp_order: int
+            The order of the spline interpolation,
+            used by scipy.ndimage.map_coordinates().
+
+        z_seabed: None|float
+            min val of the hmap. Used when extrapolating.
+            if None, will use the value stored in self.
+        """
+
+        # normalize
+        if z_seabed is None: z_seabed = self.z_seabed
+        try: len(new_scale)
+        except TypeError: new_scale = [new_scale]
+        if len(new_scale) < self._ndim+1:
+            new_scale = tuple([
+                new_scale[i] if i < len(new_scale) else new_scale[-1]
+                for i in range(self._ndim+1)])
+
+        raise NotImplementedError
+        
+        ans = self.resample(
+            new_npix_xy  = self._npix_xy,
+            nslim_in_ind = [0., self._npix_xy[0]]
+            welim_in_ind = [0., self._npix_xy[1]]
+            interp_order = interp_order,
+            verbose      = verbose,
+            **kwargs,
+        )
+
+        
         
     
 
