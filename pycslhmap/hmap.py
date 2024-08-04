@@ -62,9 +62,13 @@ class HMap:
 
     map_widxy : tuple[float, float]
         [Read-only]
-        map width in meters (i.e. whatever unit self.data is in).
+        Map width in meters (i.e. whatever unit self.data is in).
         It's 57344. for CSL2 world map, and 14336. for CSL2 playable area.
         (Because 57344 = 3.5*4*4096)
+
+    pix_widxy : tuple[float, float]
+        Pixel width in meters (i.e. whatever unit self.data is in).
+        It's (14, 14) for CSL2 world map, and (3.5, 3.5) for CSL2 playable.
 
 
     Private:
@@ -150,6 +154,16 @@ class HMap:
         (Because 57344 = 3.5*4*4096).
         """
         return self._map_widxy
+
+    @property
+    def pix_widxy(self) -> tuple[float, float]:
+        """Pixel width in meters (i.e. whatever unit self.data is in).
+        
+        It's (14, 14) for CSL2 world map, and (3.5, 3.5) for CSL2 playable.
+        """
+        return tuple([
+            map_wid / npix
+            for map_wid, npix in zip(self.map_widxy, self.npix_xy)])
         
 
 
