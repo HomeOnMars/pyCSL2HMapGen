@@ -757,8 +757,7 @@ def _erode_rainfall_init(
                     zs[i, j-1],
                     zs[i, j+1],
                 )
-                z_new = max(z_new, soils[i, j])
-                zs_new[i, j] = z_new
+                zs_new[i, j] = max(z_new, soils[i, j])
         still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
         zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
 
@@ -766,7 +765,7 @@ def _erode_rainfall_init(
 
     sedis = np.zeros_like(soils)
     
-    return soils, aquas, edges, sedis, n_cycles
+    return soils, aquas, sedis, edges, n_cycles
     
 
 
