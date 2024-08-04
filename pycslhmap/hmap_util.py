@@ -770,6 +770,119 @@ def _erode_rainfall_init(
     sedis = np.zeros_like(soils)
     
     return soils, aquas, ekins, sedis, edges, n_cycles
+
+
+
+@jit(nopython=True, fastmath=True, parallel=True)
+def _erode_rainfall_evolve(
+    soils: npt.NDArray[np.float64],
+    aquas: npt.NDArray[np.float64],
+    ekins: npt.NDArray[np.float64],
+    sedis: npt.NDArray[np.float64],
+    edges: npt.NDArray[np.float64],
+    pix_widxy: tuple[float, float],
+    #z_min: float,
+    z_sea: float,
+    z_max: float,
+    n_step: int = 1,
+    rain_per_step:float = 2**(-4),
+    do_erosion : bool = True,
+    sed_cap_fac: float = 1.0,
+    sed_initial: float = 0.0,
+    erosion_eff: float = 1.0,
+    g : float = 9.8,
+):
+    """Erosion through simulating falling rains.
+    
+    ...
+    Parameters
+    ----------
+    soils, aquas, ekins, sedis, edges: (npix+2, npix+2)-shaped numpy array
+        soils: Ground level (excl. water)
+        aquas: Water level
+        ekins: kinetic energy at the cells.
+        sedis: Sediment volume per pixel area.
+        edges: Constant level water spawner level
+        Minimum value being zero for all.
+        0 and -1 index in both x and y are edges.
+        data are stored in [1:-1, 1:-1].
+        Repeat- need to reset min level for soils to zero!
+
+    g: float
+        Gravitational constant in m/s2.
+    ...
+    """
+
+    print("Test function - Not Yet finished.")
+
+    # - init -
+    # remember len(soils) is npix+2 because we added edges
+    npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
+    pix_wid_x, pix_wid_y = pix_widxy
+    zs     = np.empty_like(soils)
+    dz_dxs = np.empty_like(soils)
+    dz_dys = np.empty_like(soils)
+    # init the part that will not be calc-ed
+    dz_dxs[   0] = np.nan
+    dz_dxs[  -1] = np.nan
+    dz_dys[:, 0] = np.nan
+    dz_dys[:,-1] = np.nan
+
+    
+    for s in range(n_step):
+
+        # - update height and gradient -
+        zs = soils + aquas
+        # note: only some of the edges will be calc-ed
+        for i in prange(1, npix_x+1):
+            dz_dxs[i] = (zs[i+1] - zs[i-1]) / (pix_wid_x*2)
+        for j in prange(1, npix_y+1):
+            dz_dys[:, j] = (zs[:, j+1] - zs[:, j-1]) / (pix_wid_y*2)
+
+        # - add rains and init -
+        aquas += rain_per_step
+        aquas_new = aquas.copy()
+        
+        for i in range(1, npix_x+1):
+            for j in range(1, npix_y+1):
+                if aquas[i, j] > 0: # only do things if there is water
+                    dzs = np.zeros((3, 3))    # for altitude change
+                    
+                    # - move water -
+                    z = zs[i, j]
+                    # weights for water flow
+                    dz_mi = z - zs[i-1, j] if z > zs[i-1, j] else 0.
+                    dz_pi = z - zs[i+1, j] if z > zs[i+1, j] else 0.
+                    dz_mj = z - zs[i, j-1] if z > zs[i, j-1] else 0.
+                    dz_pj = z - zs[i, j+1] if z > zs[i, j+1] else 0.
+                    # total
+                    dz_tot= dz_mi + dz_pi + dz_mj + dz_pj
+                    if dz_tot:    # there are places for water to flow down
+                        dz_act = min(max(    # actual change of height
+                            dz_mi,
+                            dz_pi,
+                            dz_mj,
+                            dz_pj,
+                        ), aquas[i, j])    # cannot give more than have
+                        aquas_new[i, j] -= dz_act
+                        if dz_mi:
+                            aquas_new[i-1, j] += dz_mi / dz_tot * dz_act
+                        if dz_pi:
+                            aquas_new[i+1, j] += dz_pi / dz_tot * dz_act
+                        if dz_mj:
+                            aquas_new[i, j-1] += dz_mj / dz_tot * dz_act
+                        if dz_pj:
+                            aquas_new[i, j+1] += dz_pj / dz_tot * dz_act
+
+                    # - do erosion -
+    
+    
+
+        aquas = aquas_new
+    
+    #raise NotImplementedError
+    
+    return soils, aquas, ekins, sedis, dz_dxs, dz_dys
     
 
 
