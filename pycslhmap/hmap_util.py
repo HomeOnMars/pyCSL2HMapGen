@@ -176,8 +176,14 @@ def _get_z_and_dz(
 
 
 #-----------------------------------------------------------------------------#
-#    Functions: Erosion
+#    Functions: Erosion: Raindrop (ABANDONED)
 #-----------------------------------------------------------------------------#
+
+# Note: my implementation of the raindrop method for erosion below suffers
+#    a multitude of problems, such as the eneryg conservation,
+#    particles stuck at the bottom of the lake, more coding effort required
+#    and generally me overthinking this way too much.
+#    so let's try a different approach- see Rainfall method section below
 
 
 @jit(nopython=True, fastmath=True)
@@ -660,6 +666,102 @@ def _erode_raindrop_test(
     
     return stats, steps, drops, paths, lib_z, lib_v, lib_E, lib_sed
 
+
+
+#-----------------------------------------------------------------------------#
+#    Functions: Erosion: Rainfall
+#-----------------------------------------------------------------------------#
+
+
+@jit(nopython=True, fastmath=True)
+def _erode_rainfall_init(
+    data : npt.NDArray[np.float64],    # ground level
+    map_widxy : tuple[float, float],
+    z_min : float,
+    z_sea : float,
+    z_max : float,
+    sed_cap_fac  : float = 1.0,
+    sed_initial  : float = 0.0,
+    erosion_eff  : float = 1.0,
+    edges : None|npt.NDArray[np.float64] = None,
+):
+    """Initialize for Rainfall erosion.
+    
+    data: (npix_x, npix_y)-shaped numpy array
+        initial height.
+
+    edges: (npix_x+2, npix_y+2)-shaped numpy array
+        Constant river source. acts as a spawner.
+        if None, will init as sea levels at edges.
+
+    Returns
+    -------
+    sedis: (npix_x+2, npix_y+2)-shaped numpy array
+        Sediments.
+    """
+
+    npix_x, npix_y = data.shape
+
+    # - init ans arrays -
+    
+    # adding an edge
+    soils = np.zeros((npix_x+2, npix_y+2))
+    #aquas = np.zeros_like(soils)
+
+    # init soils
+    soils[1:-1, 1:-1] = data
+    soils[ 0,   1:-1] = data[ 0]
+    soils[-1,   1:-1] = data[-1]
+    soils[1:-1,    0] = data[:, 0]
+    soils[1:-1,   -1] = data[:,-1]
+    soils[ 0, 0] = min(soils[ 0, 1], soils[ 1, 0])
+    soils[-1, 0] = min(soils[-1, 1], soils[-2, 0])
+    soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
+    soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
+    soils -= z_min
+
+    # init edges (i.e. const lvl water spawners)
+    #if edges is None:
+    if True:
+        edges = np.zeros_like(soils)
+        edges[0]    = z_sea - z_min
+        edges[-1]   = z_sea - z_min
+        edges[:, 0] = z_sea - z_min
+        edges[:,-1] = z_sea - z_min
+
+    # init aquas
+    aquas = np.where(edges > soils, edges - soils, 0.)
+    
+    # - fill basins -
+    # (lakes / sea / whatev)
+    zs = np.full_like(soils, z_max) 
+    zs = aquas + soils    # actual heights (water + ground)
+    zs [1:-1, 1:-1] = z_max - z_min    # first fill, then drain
+    # note: zs' edge elems are fixed
+    n_cycles = 0    # debug
+    still_working_on_it = True
+    while still_working_on_it:
+        still_working_on_it = False
+        n_cycles += 1
+        for i in range(1, npix_x+1):
+            for j in range(1, npix_y+1):
+                z_new = min(
+                    zs[i-1, j],
+                    zs[i+1, j],
+                    zs[i, j-1],
+                    zs[i, j+1],
+                )
+                z_new = max(z_new, soils[i, j])
+                if z_new < zs[i, j]:
+                    zs[i, j] = z_new
+                    still_working_on_it = True
+
+    aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
+
+    sedis = np.zeros_like(soils)
+    
+    return soils, aquas, edges, sedis, n_cycles
+    
 
 
 #-----------------------------------------------------------------------------#
