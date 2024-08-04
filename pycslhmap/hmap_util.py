@@ -673,31 +673,34 @@ def _erode_raindrop_test(
 #-----------------------------------------------------------------------------#
 
 
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_init(
     data : npt.NDArray[np.float64],    # ground level
-    map_widxy : tuple[float, float],
-    z_min : float,
-    z_sea : float,
-    z_max : float,
-    sed_cap_fac  : float = 1.0,
-    sed_initial  : float = 0.0,
-    erosion_eff  : float = 1.0,
-    edges : None|npt.NDArray[np.float64] = None,
+    spawners: npt.NDArray[np.float64],
+    map_widxy: tuple[float, float],
+    z_min: float,
+    z_sea: float,
+    z_max: float,
+    sed_cap_fac: float = 1.0,
+    sed_initial: float = 0.0,
+    erosion_eff: float = 1.0,
 ):
     """Initialize for Rainfall erosion.
     
     data: (npix_x, npix_y)-shaped numpy array
         initial height.
 
-    edges: (npix_x+2, npix_y+2)-shaped numpy array
-        Constant river source. acts as a spawner.
-        if None, will init as sea levels at edges.
+    spawners: (npix_x, npix_y)-shaped numpy array
+        Constant level water spawners height (incl. ground)
+        use np.zeros_like(data) as default input.
 
     Returns
     -------
-    sedis: (npix_x+2, npix_y+2)-shaped numpy array
-        Sediments.
+    ...
+    edges: (npix_x+2, npix_y+2)-shaped numpy array
+        Constant river source. acts as a spawner.
+        By default, will init any zero elements as sea levels at edges.
+    ... 
     """
 
     npix_x, npix_y = data.shape
@@ -721,13 +724,15 @@ def _erode_rainfall_init(
     soils -= z_min
 
     # init edges (i.e. const lvl water spawners)
-    #if edges is None:
-    if True:
-        edges = np.zeros_like(soils)
-        edges[0]    = z_sea - z_min
-        edges[-1]   = z_sea - z_min
-        edges[:, 0] = z_sea - z_min
-        edges[:,-1] = z_sea - z_min
+    z_edge = z_sea - z_min
+    edges = np.empty_like(soils)
+    edges[1:-1, 1:-1] = spawners
+    edges[ 0, 1:-1] = np.where(spawners[   0], spawners[   0], z_edge)
+    edges[-1, 1:-1] = np.where(spawners[  -1], spawners[  -1], z_edge)
+    edges[1:-1,  0] = np.where(spawners[:, 0], spawners[:, 0], z_edge)
+    edges[1:-1, -1] = np.where(spawners[:,-1], spawners[:,-1], z_edge)
+    edges[0, 0], edges[-1, 0] = z_edge, z_edge
+    edges[0,-1], edges[-1,-1] = z_edge, z_edge
 
     # init aquas
     aquas = np.where(edges > soils, edges - soils, 0.)
@@ -736,14 +741,15 @@ def _erode_rainfall_init(
     # (lakes / sea / whatev)
     zs = np.full_like(soils, z_max) 
     zs = aquas + soils    # actual heights (water + ground)
-    zs [1:-1, 1:-1] = z_max - z_min    # first fill, then drain
+    zs[1:-1, 1:-1] = z_max - z_min    # first fill, then drain
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
-    still_working_on_it = True
+    still_working_on_it: bool = True
     while still_working_on_it:
         still_working_on_it = False
         n_cycles += 1
-        for i in range(1, npix_x+1):
+        zs_new = np.empty_like(zs)    # *** potential for optimization?
+        for i in prange(1, npix_x+1):
             for j in range(1, npix_y+1):
                 z_new = min(
                     zs[i-1, j],
@@ -752,9 +758,9 @@ def _erode_rainfall_init(
                     zs[i, j+1],
                 )
                 z_new = max(z_new, soils[i, j])
-                if z_new < zs[i, j]:
-                    zs[i, j] = z_new
-                    still_working_on_it = True
+                zs_new[i, j] = z_new
+        still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
+        zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
 
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
 
