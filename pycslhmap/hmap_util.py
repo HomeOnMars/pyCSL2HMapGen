@@ -677,7 +677,7 @@ def _erode_raindrop_test(
 def _erode_rainfall_init(
     data : npt.NDArray[np.float64],    # ground level
     spawners: npt.NDArray[np.float64],
-    map_widxy: tuple[float, float],
+    pix_widxy: tuple[float, float],
     z_min: float,
     z_sea: float,
     z_max: float,
@@ -702,6 +702,9 @@ def _erode_rainfall_init(
         By default, will init any zero elements as sea levels at edges.
     ... 
     """
+
+    print("Test function - Not Yet finished.")
+    
 
     npix_x, npix_y = data.shape
 
@@ -763,9 +766,10 @@ def _erode_rainfall_init(
 
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
 
+    ekins = np.zeros_like(soils)
     sedis = np.zeros_like(soils)
     
-    return soils, aquas, sedis, edges, n_cycles
+    return soils, aquas, ekins, sedis, edges, n_cycles
     
 
 
