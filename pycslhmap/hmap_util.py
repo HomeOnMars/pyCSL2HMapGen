@@ -685,7 +685,7 @@ def _erode_rainfall_init(
     sed_initial: float = 0.0,
     erosion_eff: float = 1.0,
 ):
-    """Initialize for Rainfall erosion.
+    """Initialization for Rainfall erosion.
     
     data: (npix_x, npix_y)-shaped numpy array
         initial height.
@@ -693,6 +693,10 @@ def _erode_rainfall_init(
     spawners: (npix_x, npix_y)-shaped numpy array
         Constant level water spawners height (incl. ground)
         use np.zeros_like(data) as default input.
+
+    z_sea: float
+        Sea level.
+        *** Warning: z_sea = 0 will disable sea level mechanics ***
 
     Returns
     -------
@@ -786,7 +790,8 @@ def _erode_rainfall_evolve(
     z_max: float,
     n_step: int = 1,
     rain_per_step:float = 2**(-4),
-    do_erosion : bool = True,
+    flow_eff   : float = 0.25,
+    do_erosion : bool  = True,
     sed_cap_fac: float = 1.0,
     sed_initial: float = 0.0,
     erosion_eff: float = 1.0,
@@ -800,7 +805,7 @@ def _erode_rainfall_evolve(
     soils, aquas, ekins, sedis, edges: (npix+2, npix+2)-shaped numpy array
         soils: Ground level (excl. water)
         aquas: Water level
-        ekins: kinetic energy at the cells.
+        ekins: Kinetic energy divided by (water density * pixel area)
         sedis: Sediment volume per pixel area.
         edges: Constant level water spawner level
         Minimum value being zero for all.
@@ -808,6 +813,15 @@ def _erode_rainfall_evolve(
         data are stored in [1:-1, 1:-1].
         Repeat- need to reset min level for soils to zero!
 
+    z_sea: float
+        Sea level.
+        *** Warning: z_sea = 0 will disable sea level mechanics ***
+
+    flow_eff: float
+        Flow efficiency. should be in 0. < flow_eff <= 1.
+        Controls how well the water flows around.
+        I do NOT recommend touching this.
+        
     g: float
         Gravitational constant in m/s2.
     ...
@@ -817,9 +831,11 @@ def _erode_rainfall_evolve(
 
     # - init -
     # remember len(soils) is npix+2 because we added edges
+    N_ADJ : int = 4    # number of adjacent cells
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     pix_wid_x, pix_wid_y = pix_widxy
     zs     = np.empty_like(soils)
+    # note: gradient calc will be moved to future calc
     dz_dxs = np.empty_like(soils)
     dz_dys = np.empty_like(soils)
     # init the part that will not be calc-ed
@@ -827,58 +843,129 @@ def _erode_rainfall_evolve(
     dz_dxs[  -1] = np.nan
     dz_dys[:, 0] = np.nan
     dz_dys[:,-1] = np.nan
-
+    # the boundary will not be changed
+    edges_inds = np.where(edges)
+    edges_n = len(edges_inds[0])
     
     for s in range(n_step):
 
         # - update height and gradient -
         zs = soils + aquas
-        # note: only some of the edges will be calc-ed
-        for i in prange(1, npix_x+1):
-            dz_dxs[i] = (zs[i+1] - zs[i-1]) / (pix_wid_x*2)
-        for j in prange(1, npix_y+1):
-            dz_dys[:, j] = (zs[:, j+1] - zs[:, j-1]) / (pix_wid_y*2)
+        # # note: only some of the edges will be calc-ed
+        # for i in prange(1, npix_x+1):
+        #     dz_dxs[i] = (zs[i+1] - zs[i-1]) / (pix_wid_x*2)
+        # for j in prange(1, npix_y+1):
+        #     dz_dys[:, j] = (zs[:, j+1] - zs[:, j-1]) / (pix_wid_y*2)
 
         # - add rains and init -
         aquas += rain_per_step
         aquas_new = aquas.copy()
+        ekins_new = ekins.copy()
+        sedis_new = sedis.copy()
         
         for i in range(1, npix_x+1):
             for j in range(1, npix_y+1):
                 if aquas[i, j] > 0: # only do things if there is water
-                    dzs = np.zeros((3, 3))    # for altitude change
+                    
+                    # - init -
+
+                    # optimization required
+                    # idea: replace array with individual variables?
+                    
+                    dzs = np.empty(N_ADJ)    # altitude change
+                    wms = np.zeros(N_ADJ)    # water moved
+                    eks = np.zeros(N_ADJ)    # kinetic energy gained
+                    z  = zs[i, j]
+                    aq = aquas[i, j]
+                    ek = ekins[i, j]
+                    se = sedis[i, j]
+                    # arbitrarily define the array as
+                    dzs[0] = zs[i-1, j]
+                    dzs[1] = zs[i+1, j]
+                    dzs[2] = zs[i, j-1]
+                    dzs[3] = zs[i, j+1]
+                    dzs -= z
+
                     
                     # - move water -
-                    z = zs[i, j]
-                    # weights for water flow
-                    dz_mi = z - zs[i-1, j] if z > zs[i-1, j] else 0.
-                    dz_pi = z - zs[i+1, j] if z > zs[i+1, j] else 0.
-                    dz_mj = z - zs[i, j-1] if z > zs[i, j-1] else 0.
-                    dz_pj = z - zs[i, j+1] if z > zs[i, j+1] else 0.
-                    # total
-                    dz_tot= dz_mi + dz_pi + dz_mj + dz_pj
-                    if dz_tot:    # there are places for water to flow down
-                        dz_act = min(max(    # actual change of height
-                            dz_mi,
-                            dz_pi,
-                            dz_mj,
-                            dz_pj,
-                        ), aquas[i, j])    # cannot give more than have
-                        aquas_new[i, j] -= dz_act
-                        if dz_mi:
-                            aquas_new[i-1, j] += dz_mi / dz_tot * dz_act
-                        if dz_pi:
-                            aquas_new[i+1, j] += dz_pi / dz_tot * dz_act
-                        if dz_mj:
-                            aquas_new[i, j-1] += dz_mj / dz_tot * dz_act
-                        if dz_pj:
-                            aquas_new[i, j+1] += dz_pj / dz_tot * dz_act
 
+                    wms_w = np.where(    # wms_w: water level difference
+                        dzs >= 0, 0.,    # water will not flow upward
+                        -dzs)
+                    wrc = 0.    # water removed from center cell
+                    n = float(N_ADJ)
+                    inds = np.argsort(wms_w)
+                    for ik, k in enumerate(inds):
+                        # smallest dropped height first, then higher ones
+                        # required water to be moved for balancing the height:
+                        # wmfe: water moved to each cells
+                        wmfe = wms_w[k] / (1. + n)
+                        wrc_d = wmfe * n    # more water to be removed
+                        if wrc + wrc_d >= aq:
+                            # cannot give more than have
+                            wrc_d = aq - wrc
+                            wrc = aq
+                            wmfe = wrc_d / n
+                            for jk in range(ik, N_ADJ):
+                                kj = inds[jk]
+                                wms[kj] += wmfe * flow_eff
+                                eks[kj] += wmfe*g*flow_eff*(
+                                    wms_w[kj] + (wrc_d + wmfe)*flow_eff/2.
+                                )
+                                #wms_w[kj] -= wms_w[k]
+                            break
+                        # otherwise
+                        wrc += wrc_d
+                        # optimizing below:
+                        # wms[inds[ik:]] += wmfe
+                        # eks[inds[ik:]] += wmfe*g*(wms_w[inds[ik:]] - wms_w[k]/2)
+                        # wms_w[inds[ik:]] -= wms_w[k]
+                        for jk in range(ik, N_ADJ):
+                            kj = inds[jk]
+                            wms[kj] += wmfe * flow_eff
+                            eks[kj] += wmfe*g*flow_eff*(
+                                wms_w[kj] - (wrc_d + wmfe)*flow_eff/2.
+                            )
+                            wms_w[kj] -= wms_w[k]    # for next
+                        n -= 1
+                    wrc = np.sum(wms)    # re-normalize
+                    
+                    if not np.isclose(wrc, 0.):
+                        # move water
+                        aquas_new[i,   j] -= wrc
+                        aquas_new[i-1, j] += wms[0]
+                        aquas_new[i+1, j] += wms[1]
+                        aquas_new[i, j-1] += wms[2]
+                        aquas_new[i, j+1] += wms[3]
+                        # transfer kinetic energy
+                        ek_d = wrc / aq * ek
+                        ekins_new[i,   j] -= ek_d
+                        ekins_new[i-1, j] += ek_d * (wms[0] / wrc) + eks[0]
+                        ekins_new[i+1, j] += ek_d * (wms[1] / wrc) + eks[1]
+                        ekins_new[i, j-1] += ek_d * (wms[2] / wrc) + eks[2]
+                        ekins_new[i, j+1] += ek_d * (wms[3] / wrc) + eks[3]
+                        # transfer sediments
+                        se_d = wrc / aq * se
+                        sedis_new[i,   j] -= se_d
+                        sedis_new[i-1, j] += se_d * (wms[0] / wrc)
+                        sedis_new[i+1, j] += se_d * (wms[1] / wrc)
+                        sedis_new[i, j-1] += se_d * (wms[2] / wrc)
+                        sedis_new[i, j+1] += se_d * (wms[3] / wrc)
+
+        
                     # - do erosion -
-    
-    
 
+
+        # update & boundary checks
         aquas = aquas_new
+        ekins = ekins_new
+        sedis = sedis_new
+        for ik in prange(edges_n):
+            i, j = edges_inds[0][ik], edges_inds[1][ik]
+            aquas[i, j] = edges[i, j]
+            ekins[i, j] = 0.
+            sedis[i, j] = 0.
+    
     
     #raise NotImplementedError
     
