@@ -778,6 +778,54 @@ def _erode_rainfall_init(
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
+def _erode_rainfall_get_capas(
+    zs   : npt.NDArray[np.float64],
+    aquas: npt.NDArray[np.float64],
+    ekins: npt.NDArray[np.float64],
+    pix_widxy: tuple[float, float],
+    sed_cap_fac: float = 1.0,
+    v_cap: float = 16.,
+) -> npt.NDArray[np.float64]:
+    """Get sediment capacity.
+
+    Parameters
+    ----------
+    ...
+    sed_cap_fac : float
+        Sediment capacity factor of the river.
+        Limits the maximum of the sediemnt capacity.
+        
+    v_cap: float
+        Characteristic velocity for sediment capacity calculations, in m/s.
+        Used to regulate the velocity in capas calc,
+        So its influence flatten out when v is high.
+    """
+    npix_x, npix_y = zs.shape[0]-2, zs.shape[1]-2
+    pix_wid_x, pix_wid_y = pix_widxy
+
+    capas = np.zeros_like(zs)
+    
+    for i in prange(1, npix_x+1):
+        for j in prange(1, npix_y+1):
+            aq = aquas[i, j]
+            if aq:
+                z  = zs[i, j]
+                ek = ekins[i, j]
+                # average velocity (regulated to 0. < slope < 1.)
+                v_avg = (6.*ek/aq)**0.5/2.
+                v_fac = np.sin(np.atan(v_avg/v_cap))
+                # get slope (but regulated to 0. < slope < 1.)
+                dz_dx = (zs[i+1, j] - zs[i-1, j]) / (pix_wid_x*2)
+                dz_dy = (zs[i, j+1] - zs[i, j-1]) / (pix_wid_y*2)
+                slope = np.sin(np.atan((dz_dx**2 + dz_dy**2)**0.5))
+                
+                capas[i, j] = sed_cap_fac * aq * v_fac * slope
+
+    return capas
+    
+
+
+@jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_evolve(
     soils: npt.NDArray[np.float64],
     aquas: npt.NDArray[np.float64],
@@ -794,7 +842,7 @@ def _erode_rainfall_evolve(
     visco_kin  : float = 1e-6,
     do_erosion : bool  = True,
     sed_cap_fac: float = 1.0,
-    sed_initial: float = 0.0,
+    v_cap: float = 16.,
     erosion_eff: float = 1.0,
     g : float = 9.8,
 ):
@@ -825,6 +873,9 @@ def _erode_rainfall_evolve(
         Sea level.
         *** Warning: z_sea = 0 will disable sea level mechanics ***
 
+    rain_per_step: float
+        rain rate minus evaporation rate.
+
     flow_eff: float
         Flow efficiency. should be in 0. < flow_eff <= 1.
         Controls how well the water flows around.
@@ -833,6 +884,11 @@ def _erode_rainfall_evolve(
     visco_kin: float
         Kinematic visocity of water in SI units (m^2/s).
         It is about 1e-6 for water.
+
+    v_cap: float
+        Characteristic velocity for sediment capacity calculations, in m/s.
+        Used to regulate the velocity in capas calc,
+        So its influence flatten out when v is high.
         
     g: float
         Gravitational constant in m/s2.
@@ -847,14 +903,6 @@ def _erode_rainfall_evolve(
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     pix_wid_x, pix_wid_y = pix_widxy
     zs     = np.empty_like(soils)
-    # note: gradient calc will be moved to future calc
-    dz_dxs = np.empty_like(soils)
-    dz_dys = np.empty_like(soils)
-    # init the part that will not be calc-ed
-    dz_dxs[   0] = np.nan
-    dz_dxs[  -1] = np.nan
-    dz_dys[:, 0] = np.nan
-    dz_dys[:,-1] = np.nan
     # the boundary will not be changed
     edges_inds_x, edges_inds_y = np.where(edges)
     edges_n = len(edges_inds_x)
@@ -863,17 +911,15 @@ def _erode_rainfall_evolve(
 
         # - update height and gradient -
         zs = soils + aquas
-        # # note: only some of the edges will be calc-ed
-        # for i in prange(1, npix_x+1):
-        #     dz_dxs[i] = (zs[i+1] - zs[i-1]) / (pix_wid_x*2)
-        # for j in prange(1, npix_y+1):
-        #     dz_dys[:, j] = (zs[:, j+1] - zs[:, j-1]) / (pix_wid_y*2)
 
         # - add rains and init -
         aquas += rain_per_step
         aquas_dnew = np.zeros_like(soils)
         ekins_dnew = np.zeros_like(soils)
         sedis_dnew = np.zeros_like(soils)
+
+        capas = _erode_rainfall_get_capas(
+            zs, aquas, ekins, pix_widxy, sed_cap_fac, v_cap)
         
         for i in range(1, npix_x+1):
             for j in range(1, npix_y+1):
@@ -883,6 +929,7 @@ def _erode_rainfall_evolve(
 
                     # optimization required
                     # idea: replace array with individual variables?
+                    # idea: change to a more approximate moving method?
                     
                     dzs = np.empty(N_ADJ)    # altitude change
                     wms = np.zeros(N_ADJ)    # water moved
@@ -984,6 +1031,7 @@ def _erode_rainfall_evolve(
         
         
                     # - do erosion -
+                    
 
 
         # - update database -
@@ -1000,7 +1048,7 @@ def _erode_rainfall_evolve(
     
     #raise NotImplementedError
     
-    return soils, aquas, ekins, sedis, dz_dxs, dz_dys
+    return soils, aquas, ekins, sedis, capas
     
 
 
