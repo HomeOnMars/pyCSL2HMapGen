@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-"""A class to handle height maps.
+"""Functions for handling height maps.
 
 Author: HomeOnMars
 -------------------------------------------------------------------------------
@@ -20,7 +20,7 @@ from numpy import typing as npt
 
 
 #-----------------------------------------------------------------------------#
-#    Functions: Vectors and HMaps
+#    Vectors and HMaps
 #-----------------------------------------------------------------------------#
 
 
@@ -176,7 +176,7 @@ def _get_z_and_dz(
 
 
 #-----------------------------------------------------------------------------#
-#    Functions: Erosion: Raindrop (ABANDONED)
+#    Erosion: Raindrop (ABANDONED)
 #-----------------------------------------------------------------------------#
 
 # Note: my implementation of the raindrop method for erosion below suffers
@@ -669,7 +669,7 @@ def _erode_raindrop_test(
 
 
 #-----------------------------------------------------------------------------#
-#    Functions: Erosion: Rainfall
+#    Erosion: Rainfall
 #-----------------------------------------------------------------------------#
 
 
