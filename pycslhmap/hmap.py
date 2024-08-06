@@ -218,8 +218,7 @@ class HMap:
             
         # safety checks
         assert self.ndim  == 2
-        assert self.z_min >= 0
-        assert self.z_sea >= 0
+        assert self.z_sea >= self.z_min
         
         return self
 
