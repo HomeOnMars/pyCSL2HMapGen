@@ -347,10 +347,9 @@ def _erode_rainfall_evolve(
     rain_per_step:float = 2**(-4),
     flow_eff   : float = 0.25,
     visco_kin  : float = 1e-6,
-    do_erosion : bool  = True,
     sed_cap_fac: float = 1.0,
+    erosion_eff: float = 0.125,
     v_cap: float = 16.,
-    erosion_eff: float = 1.0,
     g : float = 9.8,
 ):
     """Erosion through simulating falling rains.
@@ -367,7 +366,7 @@ def _erode_rainfall_evolve(
     ----------
     soils, aquas, ekins, sedis, edges: (npix+2, npix+2)-shaped numpy array
         soils: Ground level (excl. water)
-        aquas: Water level
+        aquas: Water level. = pure water + sediment.
         ekins: Kinetic energy per water density per pixel area in m^3/s^2.
         sedis: Sediment volume per pixel area.
         edges: Constant level water spawner level
@@ -391,7 +390,10 @@ def _erode_rainfall_evolve(
     visco_kin: float
         Kinematic visocity of water in SI units (m^2/s).
         It is about 1e-6 for water.
-
+        
+    erosion_eff : float
+        Erosion efficiency. Should be 0. < erosion_eff <= 1.
+        
     v_cap: float
         Characteristic velocity for sediment capacity calculations, in m/s.
         Used to regulate the velocity in capas calc,
@@ -421,6 +423,7 @@ def _erode_rainfall_evolve(
 
         # - add rains and init -
         aquas += rain_per_step
+        soils_dnew = np.zeros_like(soils)
         aquas_dnew = np.zeros_like(soils)
         ekins_dnew = np.zeros_like(soils)
         sedis_dnew = np.zeros_like(soils)
@@ -445,6 +448,7 @@ def _erode_rainfall_evolve(
                     aq = aquas[i, j]
                     ek = ekins[i, j]
                     se = sedis[i, j]
+                    ca = capas[i, j]
                     # arbitrarily define the array as
                     dzs[0] = zs[i-1, j]
                     dzs[1] = zs[i+1, j]
@@ -538,16 +542,33 @@ def _erode_rainfall_evolve(
         
         
                     # - do erosion -
+
+                    # d_se: extra sediments to be absorbed by water
+                    d_se = (ca - se) * erosion_eff
+                    # prevent digging a hole or rising a pillar
+                    if d_se > 0:
+                        # cannot dig under the bedrock
+                        d_se = min(d_se, soils[i, j]) #, -np.min(dzs))
+                    else:
+                        # cannot give more than have
+                        d_se = max(d_se, -aq, -se)
+                    sedis_dnew[i, j] += d_se
+                    aquas_dnew[i, j] += d_se
+                    soils_dnew[i, j] -= d_se
+                            
+                            
                     
 
 
         # - update database -
+        soils += soils_dnew
         aquas += aquas_dnew
         ekins += ekins_dnew
         sedis += sedis_dnew
         # reset boundary
         for ik in prange(edges_n):
             i, j = edges_inds_x[ik], edges_inds_y[ik]
+            # soils edge should not have changed
             aquas[i, j] = edges[i, j]
             ekins[i, j] = 0.
             sedis[i, j] = 0.
