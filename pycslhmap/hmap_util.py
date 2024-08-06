@@ -236,6 +236,7 @@ def _erode_rainfall_init(
     soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
     soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
     soils -= z_min
+    soils = np.where(soils <= 0., 0., soils)
 
     # init edges (i.e. const lvl water spawners)
     z_edge = z_sea - z_min
@@ -278,7 +279,7 @@ def _erode_rainfall_init(
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
 
     ekins = np.zeros_like(soils)
-    sedis = np.zeros_like(soils)
+    sedis = np.zeros_like(soils) # is zero because speed is zero
     
     return soils, aquas, ekins, sedis, edges, n_cycles
 
@@ -541,8 +542,13 @@ def _erode_rainfall_evolve(
                     # diffusion
         
         
-                    # - do erosion -
-
+        # - do erosion -
+        for i in prange(1, npix_x+1):
+            for j in prange(1, npix_y+1):
+                aq = aquas[i, j] + aquas_dnew[i, j]
+                if aq:
+                    se = sedis[i, j] + sedis_dnew[i, j]
+                    ca = capas[i, j]
                     # d_se: extra sediments to be absorbed by water
                     d_se = (ca - se) * erosion_eff
                     # prevent digging a hole or rising a pillar
