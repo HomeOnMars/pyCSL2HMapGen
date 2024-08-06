@@ -791,6 +791,7 @@ def _erode_rainfall_evolve(
     n_step: int = 1,
     rain_per_step:float = 2**(-4),
     flow_eff   : float = 0.25,
+    visco_kin  : float = 1e-6,
     do_erosion : bool  = True,
     sed_cap_fac: float = 1.0,
     sed_initial: float = 0.0,
@@ -798,6 +799,13 @@ def _erode_rainfall_evolve(
     g : float = 9.8,
 ):
     """Erosion through simulating falling rains.
+
+    Assuming that for each pixel, velocity goes linearly
+        from 0 at the bottom of the water, to vmax at the top of the water,
+        i.e. v(z) = vmax * z / aq for z from 0 to aq, where aq = aquas[i, j].
+        Therefore, ekins[i, j] = ek = $ 0.5 \\int v(z)^2 dz $ = aq*vmax**2/6
+            is the kinetic energy (per pixel area divided by water density)
+            stored at that pixel.
     
     ...
     Parameters
@@ -805,7 +813,7 @@ def _erode_rainfall_evolve(
     soils, aquas, ekins, sedis, edges: (npix+2, npix+2)-shaped numpy array
         soils: Ground level (excl. water)
         aquas: Water level
-        ekins: Kinetic energy divided by (water density * pixel area)
+        ekins: Kinetic energy per water density per pixel area in m^3/s^2.
         sedis: Sediment volume per pixel area.
         edges: Constant level water spawner level
         Minimum value being zero for all.
@@ -821,6 +829,10 @@ def _erode_rainfall_evolve(
         Flow efficiency. should be in 0. < flow_eff <= 1.
         Controls how well the water flows around.
         I do NOT recommend touching this.
+
+    visco_kin: float
+        Kinematic visocity of water in SI units (m^2/s).
+        It is about 1e-6 for water.
         
     g: float
         Gravitational constant in m/s2.
@@ -844,8 +856,8 @@ def _erode_rainfall_evolve(
     dz_dys[:, 0] = np.nan
     dz_dys[:,-1] = np.nan
     # the boundary will not be changed
-    edges_inds = np.where(edges)
-    edges_n = len(edges_inds[0])
+    edges_inds_x, edges_inds_y = np.where(edges)
+    edges_n = len(edges_inds_x)
     
     for s in range(n_step):
 
@@ -859,9 +871,9 @@ def _erode_rainfall_evolve(
 
         # - add rains and init -
         aquas += rain_per_step
-        aquas_new = aquas.copy()
-        ekins_new = ekins.copy()
-        sedis_new = sedis.copy()
+        aquas_dnew = np.zeros_like(soils)
+        ekins_dnew = np.zeros_like(soils)
+        sedis_dnew = np.zeros_like(soils)
         
         for i in range(1, npix_x+1):
             for j in range(1, npix_y+1):
@@ -929,39 +941,58 @@ def _erode_rainfall_evolve(
                             wms_w[kj] -= wms_w[k]    # for next
                         n -= 1
                     wrc = np.sum(wms)    # re-normalize
-                    
+
+                    ek_d = wrc / aq * ek
                     if not np.isclose(wrc, 0.):
                         # move water
-                        aquas_new[i,   j] -= wrc
-                        aquas_new[i-1, j] += wms[0]
-                        aquas_new[i+1, j] += wms[1]
-                        aquas_new[i, j-1] += wms[2]
-                        aquas_new[i, j+1] += wms[3]
+                        aquas_dnew[i,   j] -= wrc
+                        aquas_dnew[i-1, j] += wms[0]
+                        aquas_dnew[i+1, j] += wms[1]
+                        aquas_dnew[i, j-1] += wms[2]
+                        aquas_dnew[i, j+1] += wms[3]
                         # transfer kinetic energy
-                        ek_d = wrc / aq * ek
-                        ekins_new[i,   j] -= ek_d
-                        ekins_new[i-1, j] += ek_d * (wms[0] / wrc) + eks[0]
-                        ekins_new[i+1, j] += ek_d * (wms[1] / wrc) + eks[1]
-                        ekins_new[i, j-1] += ek_d * (wms[2] / wrc) + eks[2]
-                        ekins_new[i, j+1] += ek_d * (wms[3] / wrc) + eks[3]
+                        # will update ekins later
+                        #ek_d = wrc / aq * ek
+                        #ekins_dnew[i,   j] -= ek_d
+                        ekins_dnew[i-1, j] += ek_d * (wms[0] / wrc) + eks[0]
+                        ekins_dnew[i+1, j] += ek_d * (wms[1] / wrc) + eks[1]
+                        ekins_dnew[i, j-1] += ek_d * (wms[2] / wrc) + eks[2]
+                        ekins_dnew[i, j+1] += ek_d * (wms[3] / wrc) + eks[3]
                         # transfer sediments
                         se_d = wrc / aq * se
-                        sedis_new[i,   j] -= se_d
-                        sedis_new[i-1, j] += se_d * (wms[0] / wrc)
-                        sedis_new[i+1, j] += se_d * (wms[1] / wrc)
-                        sedis_new[i, j-1] += se_d * (wms[2] / wrc)
-                        sedis_new[i, j+1] += se_d * (wms[3] / wrc)
+                        sedis_dnew[i,   j] -= se_d
+                        sedis_dnew[i-1, j] += se_d * (wms[0] / wrc)
+                        sedis_dnew[i+1, j] += se_d * (wms[1] / wrc)
+                        sedis_dnew[i, j-1] += se_d * (wms[2] / wrc)
+                        sedis_dnew[i, j+1] += se_d * (wms[3] / wrc)
 
+                    # update ekin with the friction from viscosity
+                    # friction from viscosity
+                    #    Energy loss W_f = $ \\frac{\\partial^2 f}{\\partial x \\partial z} s dx dz $
+                    #        where the force per cross-section \\frac{\\partial^2 f}{\\partial x \\partial z} = mu * v(z) / z,
+                    #        with mu being the dynamic viscosity.
+                    #    So, W_f = s**2 * mu * vmax, thus
+                    #        W_f/rho/s**2 = (mu/rho)*vmax = (mu/rho) * sqrt(6*ek/aq)
+                    #        where mu/rho is the kinetic viscosity of water.
+                    # Note: we already know that the aq != 0
+                    ek_d += visco_kin * (6*(ek-ek_d)/aq)**0.5
+                    ek_d = min(ek_d, ek)    # make sure ekins don't go negative
+                    ekins_dnew[i, j] -= ek_d
+
+
+                    # diffusion
+        
         
                     # - do erosion -
 
 
-        # update & boundary checks
-        aquas = aquas_new
-        ekins = ekins_new
-        sedis = sedis_new
+        # - update database -
+        aquas += aquas_dnew
+        ekins += ekins_dnew
+        sedis += sedis_dnew
+        # reset boundary
         for ik in prange(edges_n):
-            i, j = edges_inds[0][ik], edges_inds[1][ik]
+            i, j = edges_inds_x[ik], edges_inds_y[ik]
             aquas[i, j] = edges[i, j]
             ekins[i, j] = 0.
             sedis[i, j] = 0.
