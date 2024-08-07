@@ -16,7 +16,7 @@ Author: HomeOnMars
 # In[2]:
 
 
-# dependencies: numpy, scipy, gdal, pypng
+
 import numpy as np
 from numpy import pi
 from scipy.interpolate import RegularGridInterpolator

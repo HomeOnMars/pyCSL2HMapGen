@@ -17,12 +17,12 @@ import numpy as np
 from numpy import typing as npt
 
 try:
-    has_cuda_gpu = cuda.detect()
+    CAN_CUDA = cuda.detect()
 except Exception as e:
     print(f"**  Warning: Error during initializing GPU acceleration:\n\t{e}")
-    has_cuda_gpu = False
+    CAN_CUDA = False
 
-if has_cuda_gpu:
+if CAN_CUDA:
     print("\nNote   :\n\t"
           + "Cuda supported devices found."
           + " GPU-accelerated functions available.\n")
