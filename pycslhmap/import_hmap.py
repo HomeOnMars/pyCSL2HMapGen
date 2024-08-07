@@ -4,16 +4,14 @@
 # In[1]:
 
 
-"""A simple script to extract & interpolate CSL2 height map from JAXA:AW3D30 data files.
+"""A simple script to extract CSL2 height map from JAXA:AW3D30 data files.
 
 Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
 
-# # Functions
-
-# In[2]:
+# Functions
 
 
 
@@ -21,12 +19,15 @@ import numpy as np
 from numpy import pi
 from scipy.interpolate import RegularGridInterpolator
 from scipy.ndimage import distance_transform_edt, gaussian_filter
-from osgeo import gdal
 import png
-gdal.UseExceptions()
+CAN_GDAL = False
+try:
+    from osgeo import gdal
+    gdal.UseExceptions()
+    CAN_GDAL = True
+except ModuleNotFoundError as e:
+    print(f"**  Warning: {e}\nReal world import functionality disabled.")
 
-
-# In[3]:
 
 
 def get_interpolator_tiff(
@@ -63,8 +64,6 @@ def get_interpolator_tiff(
 
     return interp
 
-
-# In[4]:
 
 
 def get_grid_coord(
@@ -111,8 +110,6 @@ def get_grid_coord(
     
     return ans
 
-
-# In[5]:
 
 
 def interpolate_height_map_tiff(
@@ -196,8 +193,6 @@ def interpolate_height_map_tiff(
     
     return ans, coord
 
-
-# In[6]:
 
 
 def get_CSL_height_maps(
@@ -388,41 +383,3 @@ def get_CSL_height_maps(
         print("\n\tAll Done.\n")
 
     return img_arr_orig, coord
-
-
-# # Example
-
-# In[7]:
-
-
-if __name__ == '__main__':
-    
-    # Example 1
-    
-    # download the relevant data from https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d_e.htm
-    #    (or some other sources, I don't care)
-    #    If you download from JAXA, you will need to register an account and read their terms of service
-    #    after downloading, put them in the ./raw/ folder, and supply the file path (incl. file name) here
-    #    they will be used to interpolate the elevations in the respective areas of the image.
-    #    if you see a patch of the image is constant at minimal height-1,
-    #    then you haven't downloaded & added the data of that patch. Probably.
-    tiffilenames = [
-        'raw/ALPSMLC30_N063W017_DSM.tif',
-        'raw/ALPSMLC30_N064W016_DSM.tif',
-        'raw/ALPSMLC30_N064W017_DSM.tif',
-    ]
-    
-    # Parameters explanation
-    #  angle_deg is the degrees the map will be rotated
-    #  map_scales=(1.5, 1.2) means stretching the width of the map to 1:1.5
-    #    (i.e. mapping real world 1.5*57.344km to game 57.344km)
-    #    while stretching the heights to 1:1.2
-    img_arr, coord = get_CSL_height_maps(
-        long=-16.000, lati=+64.185, angle_deg=30., tiffilenames=tiffilenames, map_scales=(1.125, 1.0))
-
-
-# In[ ]:
-
-
-
-
