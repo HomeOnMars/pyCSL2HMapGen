@@ -16,16 +16,20 @@ from numba import jit, prange, cuda
 import numpy as np
 from numpy import typing as npt
 
-
-has_cuda_gpu = cuda.detect()
+try:
+    has_cuda_gpu = cuda.detect()
+except Exception as e:
+    print(f"**  Warning: Error during initializing GPU acceleration:\n\t{e}")
+    has_cuda_gpu = False
 
 if has_cuda_gpu:
-    print("Cuda supported devices found."
-          "GPU-accelerated functions available.")
+    print("Note   :\n\t"
+          + "Cuda supported devices found."
+          + " GPU-accelerated functions available.")
 else:
-    print("*   Warning:"
-          "NO Cuda supported devices found."
-          "GPU-accelerated functions UNAVAILABLE.")
+    print("*   Warning:\n\t"
+          + "NO Cuda supported devices found."
+          + " GPU-accelerated functions UNAVAILABLE.")
 
 
 
