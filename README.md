@@ -1,4 +1,5 @@
 # pyCSL2HMapGen
+
 A python-based height map interpolation script for Cities: Skylines 2 (CSL2) Map Editor.
 
 See the `Example*.ipynb` jupyter notebooks for a quick guide!
@@ -9,6 +10,7 @@ Generating and handling world & playable area's height maps for CSL2,
 written by and for the python-knowing folks.
 
 #### Functionalities
+
 - Import `.tiff` data (require `gdal`) (See `Example1_*.ipynb`)
 - Load / save height maps from `.png` files
 - Resample & rescale height maps
@@ -18,6 +20,7 @@ written by and for the python-knowing folks.
 
 
 ## Dependencies
+
 - `python` (>=3.10)
-- Packages: `numba, numpy, scipy, matplotlib, pypng`
-- Optional: `gdal, cudatoolkit`
+- Packages: `numba numpy scipy matplotlib pypng`
+- Optional: `gdal cudatoolkit`
