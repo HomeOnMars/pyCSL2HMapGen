@@ -23,13 +23,13 @@ except Exception as e:
     has_cuda_gpu = False
 
 if has_cuda_gpu:
-    print("Note   :\n\t"
+    print("\nNote   :\n\t"
           + "Cuda supported devices found."
-          + " GPU-accelerated functions available.")
+          + " GPU-accelerated functions available.\n")
 else:
-    print("*   Warning:\n\t"
+    print("\n*   Warning:\n\t"
           + "NO Cuda supported devices found."
-          + " GPU-accelerated functions UNAVAILABLE.")
+          + " GPU-accelerated functions UNAVAILABLE.\n")
 
 
 
@@ -72,7 +72,7 @@ def _erode_rainfall_init_cuda(
     ... 
     """
 
-    print("Test function - Not Yet finished.")
+    raise NotImplementedError("Cuda version of this func not yet complete.")
     
 
     npix_x, npix_y = data.shape
@@ -166,6 +166,9 @@ def _erode_rainfall_get_capas_cuda(
         Used to regulate the velocity in capas calc,
         So its influence flatten out when v is high.
     """
+
+    raise NotImplementedError("Cuda version of this func not yet complete.")
+    
     npix_x, npix_y = zs.shape[0]-2, zs.shape[1]-2
     pix_wid_x, pix_wid_y = pix_widxy
 

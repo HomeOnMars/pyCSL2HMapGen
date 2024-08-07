@@ -354,12 +354,19 @@ def _erode_rainfall_evolve(
 ):
     """Erosion through simulating falling rains.
 
+    Notes
+    -----
     Assuming that for each pixel, velocity goes linearly
         from 0 at the bottom of the water, to vmax at the top of the water,
         i.e. v(z) = vmax * z / aq for z from 0 to aq, where aq = aquas[i, j].
         Therefore, ekins[i, j] = ek = $ 0.5 \\int v(z)^2 dz $ = aq*vmax**2/6
             is the kinetic energy (per pixel area divided by water density)
             stored at that pixel.
+
+    Note: Single-precision floating-point np.float32 has only 23bits for
+        storing numbers, so for z_max=4096 (2**12), this means only 11bits
+        for the digits after the decimal point- so, some of the parameters
+        (such as rain_per_step) is recommended to be >=2**(-10), i.e. >=0.001.
     
     ...
     Parameters
@@ -402,6 +409,8 @@ def _erode_rainfall_evolve(
     g: float
         Gravitational constant in m/s2.
     ...
+    
+    ---------------------------------------------------------------------------
     """
 
     print("Test function - Not Yet finished.")
@@ -551,9 +560,9 @@ def _erode_rainfall_evolve(
                     ca = capas[i, j]
                     # d_se: extra sediments to be absorbed by water
                     d_se = (ca - se) * erosion_eff
-                    # prevent digging a hole or rising a pillar
                     if d_se > 0:
                         # cannot dig under the bedrock
+                        # ****** Add code to prevet digging a hole ******
                         d_se = min(d_se, soils[i, j]) #, -np.min(dzs))
                     else:
                         # cannot give more than have
@@ -561,10 +570,6 @@ def _erode_rainfall_evolve(
                     sedis_dnew[i, j] += d_se
                     aquas_dnew[i, j] += d_se
                     soils_dnew[i, j] -= d_se
-                            
-                            
-                    
-
 
         # - update database -
         soils += soils_dnew
@@ -578,9 +583,6 @@ def _erode_rainfall_evolve(
             aquas[i, j] = edges[i, j]
             ekins[i, j] = 0.
             sedis[i, j] = 0.
-    
-    
-    #raise NotImplementedError
     
     return soils, aquas, ekins, sedis, capas
     
