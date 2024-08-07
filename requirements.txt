@@ -1,0 +1,6 @@
+GDAL==3.9.1
+matplotlib==3.9.1.post1
+numba==0.60.0
+numpy==2.0.1
+pypng==0.20220715.0
+scipy==1.14.0

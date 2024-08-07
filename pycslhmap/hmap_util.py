@@ -11,7 +11,6 @@ Author: HomeOnMars
 # Dependencies
 
 from typing import Self
-import random
 
 from numba import jit, prange
 import numpy as np
@@ -441,6 +440,7 @@ def _erode_rainfall_evolve(
                     # optimization required
                     # idea: replace array with individual variables?
                     # idea: change to a more approximate moving method?
+                    # idea: cuda GPU-acceleration?
                     
                     dzs = np.empty(N_ADJ)    # altitude change
                     wms = np.zeros(N_ADJ)    # water moved
