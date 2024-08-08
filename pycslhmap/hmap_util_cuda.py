@@ -51,14 +51,12 @@ CUDA_TPB_PLUS_2: int = CUDA_TPB+2
 
 
 @cuda.jit(fastmath=True)
-def _erode_rainfall_init_cuda_sub(
-    zs    : npt.NDArray[np.float32],
-    soils : npt.NDArray[np.float32],
-    have_changes: npt.NDArray[np.bool_],
-):
-    """CUDA GPU-accelerated sub process."""
-    n_cycles = 0    # debug
+def _erode_rainfall_init_cuda_sub(zs, soils, is_changed):
+    """CUDA GPU-accelerated sub process.
 
+    Input data type: cuda.cudadrv.devicearray.DeviceNDArray
+    """
+    
     # - define shared data structure -
     # (shared by the threads in the same block)
     # Note: the 4 corners will be undefined.
@@ -67,12 +65,14 @@ def _erode_rainfall_init_cuda_sub(
     sarr_zs = cuda.shared.array(
         shape=(CUDA_TPB_PLUS_2, CUDA_TPB_PLUS_2), dtype=float32)
 
+    nx_p2, ny_p2 = zs.shape
+
     # - get thread coordinates -
     i, j = cuda.grid(2)
     # add 1 to account for the edges in the data
     i += 1
     j += 1
-    if i + 1 >= zs.shape[0] or j + 1 >= zs.shape[1]:
+    if i + 1 >= nx_p2 or j + 1 >= ny_p2:
         # do nothing if out of bound
         return
     # add 1 to account for the edges in the data
@@ -85,11 +85,11 @@ def _erode_rainfall_init_cuda_sub(
     # load edges
     if ti == 0:
         sarr_zs[ti-1, tj] = zs[i-1, j]
-    if ti == CUDA_TPB-1 or i + 2 == zs.shape[0]:
+    if ti == CUDA_TPB-1 or i+2 == nx_p2:
         sarr_zs[ti+1, tj] = zs[i+1, j]
     if tj == 0:
         sarr_zs[ti, tj-1] = zs[i, j-1]
-    if tj == CUDA_TPB-1 or j + 2 == zs.shape[1]:
+    if tj == CUDA_TPB-1 or j+2 == ny_p2:
         sarr_zs[ti, tj+1] = zs[i, j+1]
     cuda.syncthreads()
 
@@ -101,17 +101,17 @@ def _erode_rainfall_init_cuda_sub(
         sarr_zs[ti, tj+1],
     )
     z_new = max(z_new, soil)
-    is_changed = z_new < sarr_zs[ti, tj]
     #sarr_zs[ti, tj] = z_new
     
     # - write data back -
     zs[i, j] = z_new
-    have_changes[i, j] = is_changed
+    if z_new < sarr_zs[ti, tj]:
+        is_changed[0] = True
 
 
 
 
-@jit(nopython=True, fastmath=True, parallel=True)
+#@jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_init_cuda(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
@@ -145,14 +145,14 @@ def _erode_rainfall_init_cuda(
     ... 
     """
     
-    # raise NotImplementedError("Cuda version of this func not yet complete.")
+    print("** Warning: Cuda version of this func is currently broken.")
     
     npix_x, npix_y = data.shape
     z_min = np.float32(z_min)
     z_sea = np.float32(z_sea)
     z_max = np.float32(z_max)
     # tpb: threads per block
-    cuda_tpb_shape = (CUDA_TPB, CUDA_TPB)
+    cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
     # bpg: blocks per grid
     cuda_bpg_shape = (
         (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
@@ -199,13 +199,17 @@ def _erode_rainfall_init_cuda(
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
     # - CUDA GPU-acceleration -
-    have_changes = np.zeros_like(soils, dtype=np.bool_)
-    have_changes[1:-1, 1:-1] = np.bool_(True)    # make sure edges are False
-    while np.any(have_changes):
+    is_changed_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
+    zs_cuda = cuda.to_device(zs)
+    soils_cuda = cuda.to_device(soils)
+    while is_changed_cuda[0]:
+        is_changed_cuda[0] = False
         n_cycles += 1
         _erode_rainfall_init_cuda_sub[
-        cuda_bpg_shape, cuda_tpb_shape](zs, soils, have_changes)
-    
+        cuda_bpg_shape, cuda_tpb_shape](zs_cuda, soils_cuda, is_changed_cuda)
+        cuda.synchronize()
+
+    zs = zs_cuda.copy_to_host()
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
     ekins = np.zeros_like(soils)
     sedis = np.zeros_like(soils) # is zero because speed is zero
