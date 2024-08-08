@@ -16,11 +16,12 @@ written by and for the python-knowing folks.
 - Resample & rescale height maps
 - Extract playable area from world map for CSL2 height maps
 - Re-insert playable area into world map for CSL2 height maps
-- \[Not yet completed\] Erosion ~~(optionally require `cudatoolkit` and cuda-compatible GPU for acceleration)~~
+- \[Not yet completed\] Erosion ~~(optionally require `cuda-nvcc cuda-nvrtc` and cuda-compatible GPU for acceleration)~~
 
 
 ## Dependencies
 
 - `python` (>=3.10)
 - Packages: `numba numpy scipy matplotlib pypng`
-- Optional: `gdal cudatoolkit jupyter jupyterlab`
+- Optional: `gdal cuda-nvcc cuda-nvrtc jupyter jupyterlab`
+- You may also need to update your Nvidia GPU driver if using the CUDA GPU-acceleration feature.
