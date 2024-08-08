@@ -158,6 +158,7 @@ def _erode_rainfall_init_cuda(
         (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
         (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
     )
+    print(cuda_bpg_shape)
 
     # - init ans arrays -
     
@@ -205,9 +206,14 @@ def _erode_rainfall_init_cuda(
     while is_changed_cuda[0]:
         is_changed_cuda[0] = False
         n_cycles += 1
-        _erode_rainfall_init_cuda_sub[
-        cuda_bpg_shape, cuda_tpb_shape](zs_cuda, soils_cuda, is_changed_cuda)
+        _erode_rainfall_init_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
+                zs_cuda, soils_cuda, is_changed_cuda)
         cuda.synchronize()
+        # debug
+        if n_cycles % 100 == 0:
+            print(n_cycles, cuda_bpg_shape, cuda_tpb_shape)
+        if n_cycles > 1500:
+            break
 
     zs = zs_cuda.copy_to_host()
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
