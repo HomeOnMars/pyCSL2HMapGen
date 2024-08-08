@@ -23,4 +23,4 @@ written by and for the python-knowing folks.
 
 - `python` (>=3.10)
 - Packages: `numba numpy scipy matplotlib pypng`
-- Optional: `gdal cudatoolkit`
+- Optional: `gdal cudatoolkit jupyter jupyterlab`
