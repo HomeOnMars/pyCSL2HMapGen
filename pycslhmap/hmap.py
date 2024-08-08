@@ -41,7 +41,7 @@ class HMap:
     
     Public:
     
-    data       : (self.npix_xy)-shaped numpy array (np.float64)
+    data       : (self.npix_xy)-shaped numpy array (np.float32)
         Contains height map data in meters.
         MUST be:
             1) 2D,
@@ -93,7 +93,7 @@ class HMap:
     
     def __init__(
         self,
-        data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float64),
+        data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float32),
         map_width : None|float|tuple[float, float] = None,
         pix_width : None|float|tuple[float, float] = 1.,
         z_min: float = 0.,
@@ -121,14 +121,14 @@ class HMap:
                 z_min  = data.z_min
                 z_sea  = data.z_sea
             data = data.data.copy()
-        data = np.array(data, dtype=np.float64)
+        data = np.array(data, dtype=np.float32)
         map_width = self._get_map_wid_from_pix_wid(
             data.shape, map_width, pix_width)
                 
                 
         # variables
         
-        self.data: npt.NDArray[np.float64] = data
+        self.data: npt.NDArray[np.float32] = data
         # note: will normalize float into tuple of floats later
         self._map_widxy: tuple[float, float] = map_width
         self.z_min: float = z_min
@@ -192,7 +192,7 @@ class HMap:
             
         # set each element to pixel width if it's None
         if pix_width is None: pix_width = 1.
-        map_width_new = np.zeros(len(data_shape), dtype=np.float64)
+        map_width_new = np.zeros(len(data_shape), dtype=np.float32)
         for i_mw in range(len(data_shape)):
             mw = None
             if i_mw < len_map_width:
@@ -276,7 +276,7 @@ class HMap:
         """Returns a new obj with same meta data as self, but None in data."""
         # *** optimization not included.
         ans = self.copy()
-        ans.data = np.zeros((8, 8), dtype=np.float64)
+        ans.data = np.zeros((8, 8), dtype=np.float32)
         return ans
     
 
@@ -351,9 +351,10 @@ class HMap:
         self,
         filename : str,
         map_width: float|tuple[float, float],    # 57344. wm / 14336. pa
-        z_max: float = 4096.,
         z_min: float = 64.,
         z_sea: float = 128.,
+        z_max: float = 4096.,
+        dtype: type  = np.float32,
         verbose: bool= True,
     ) -> Self:
         """Load height map from a png file.
@@ -387,7 +388,7 @@ class HMap:
 
         #self.__init__(pixels, map_width=map_width,
         #              z_min=z_min, z_sea=z_sea,)
-        self.data  = np.array(pixels, dtype=np.float64)
+        self.data  = np.array(pixels, dtype=dtype)
         self._map_widxy = map_width
         self.z_min = z_min
         self.z_sea = z_sea

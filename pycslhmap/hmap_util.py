@@ -113,7 +113,7 @@ def _ind_to_pos(
 def _get_z_and_dz(
     pos_x: float,
     pos_y: float,
-    data : npt.NDArray[np.float64],
+    data : npt.NDArray[np.float32],
     map_widxy: tuple[int, int],
 ) -> tuple[float, float, float]:
     """Get height and gradients at specified position in physical units.
@@ -181,8 +181,8 @@ def _get_z_and_dz(
 
 @jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_init(
-    data : npt.NDArray[np.float64],    # ground level
-    spawners: npt.NDArray[np.float64],
+    data : npt.NDArray[np.float32],    # ground level
+    spawners: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
     z_min: float,
     z_sea: float,
@@ -221,7 +221,7 @@ def _erode_rainfall_init(
     # - init ans arrays -
     
     # adding an edge
-    soils = np.zeros((npix_x+2, npix_y+2))
+    soils = np.zeros((npix_x+2, npix_y+2), dtype=np.float32)
     #aquas = np.zeros_like(soils)
 
     # init soils
@@ -286,13 +286,13 @@ def _erode_rainfall_init(
 
 @jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_get_capas(
-    zs   : npt.NDArray[np.float64],
-    aquas: npt.NDArray[np.float64],
-    ekins: npt.NDArray[np.float64],
+    zs   : npt.NDArray[np.float32],
+    aquas: npt.NDArray[np.float32],
+    ekins: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
     sed_cap_fac: float = 1.0,
     v_cap: float = 16.,
-) -> npt.NDArray[np.float64]:
+) -> npt.NDArray[np.float32]:
     """Get sediment capacity.
 
     Parameters
@@ -334,19 +334,21 @@ def _erode_rainfall_get_capas(
 
 @jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_evolve(
-    soils: npt.NDArray[np.float64],
-    aquas: npt.NDArray[np.float64],
-    ekins: npt.NDArray[np.float64],
-    sedis: npt.NDArray[np.float64],
-    edges: npt.NDArray[np.float64],
+    soils: npt.NDArray[np.float32],
+    aquas: npt.NDArray[np.float32],
+    ekins: npt.NDArray[np.float32],
+    sedis: npt.NDArray[np.float32],
+    edges: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
     #z_min: float,
     z_sea: float,
     z_max: float,
     n_step: int = 1,
     rain_per_step:float = 2**(-4),
+    #rains_config: npt.NDArray[np.float32],
     flow_eff   : float = 0.25,
-    visco_kin  : float = 1e-6,
+    visco_kin_aqua: float = 1e-6,
+    visco_kin_soil: float = 1.0,
     sed_cap_fac: float = 1.0,
     erosion_eff: float = 0.125,
     v_cap: float = 16.,
@@ -389,14 +391,20 @@ def _erode_rainfall_evolve(
     rain_per_step: float
         rain rate minus evaporation rate.
 
+    rains_config: (n_step, 4)-shaped npt.NDArray[np.float32]
+        configuration of rains at each step.
+        for each line, the data should be like
+            (strength, spread, loc_x, loc_y)
+        *** To be updated ***
+
     flow_eff: float
         Flow efficiency. should be in 0. < flow_eff <= 1.
         Controls how well the water flows around.
         I do NOT recommend touching this.
 
-    visco_kin: float
-        Kinematic visocity of water in SI units (m^2/s).
-        It is about 1e-6 for water.
+    visco_kin_aqua, visco_kin_soil: float
+        Kinematic visocity of water and soils in SI units (m^2/s).
+        It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
         
     erosion_eff : float
         Erosion efficiency. Should be 0. < erosion_eff <= 1.
@@ -424,6 +432,7 @@ def _erode_rainfall_evolve(
     # the boundary will not be changed
     edges_inds_x, edges_inds_y = np.where(edges)
     edges_n = len(edges_inds_x)
+    visco_kin = visco_kin_aqua
     
     for s in range(n_step):
 

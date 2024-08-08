@@ -73,7 +73,10 @@ class CSL2HMap(HMap):
 
     npix : int
         no of pixel in x and y dimensions.
-    
+
+    npix_4 : int
+        == npix / 4
+        
     npix_8 : int
         == npix / 8
 
@@ -95,7 +98,7 @@ class CSL2HMap(HMap):
     def __init__(
         self,
         data : Self|HMap|npt.ArrayLike = np.zeros(
-            (NPIX_CSL2, NPIX_CSL2), dtype=np.float64),
+            (NPIX_CSL2, NPIX_CSL2), dtype=np.float32),
         map_type: str = 'playable', # 'worldmap' or 'playable'
         map_name: str = '',
         z_max : float = 4096.,
@@ -150,6 +153,11 @@ class CSL2HMap(HMap):
     def npix(self) -> int:
         """Number of pixels in x and y dimensions. Should be 4096."""
         return self.npix_xy[0]
+
+    @property
+    def npix_4(self) -> int:
+        """1/4th of the number of pixels per dim. Should be 1024."""
+        return int(self.npix / 4)
 
     @property
     def npix_8(self) -> int:
@@ -356,7 +364,7 @@ class CSL2HMap(HMap):
         res = playable_hmap.resample(
             nslim_in_ind=(0, self.npix),
             welim_in_ind=(0, self.npix),
-            new_npix_xy=(self.npix_8*2, self.npix_8*2), **kwargs,
+            new_npix_xy=(self.npix_4, self.npix_4), **kwargs,
         )
 
         ans = self.copy()

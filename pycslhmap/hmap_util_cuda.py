@@ -38,10 +38,10 @@ else:
 #-----------------------------------------------------------------------------#
 
 
-@jit(nopython=True, fastmath=True, parallel=True)
+@cuda.jit
 def _erode_rainfall_init_cuda(
-    data : npt.NDArray[np.float64],    # ground level
-    spawners: npt.NDArray[np.float64],
+    data : npt.NDArray[np.float32],    # ground level
+    spawners: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
     z_min: float,
     z_sea: float,
@@ -145,13 +145,13 @@ def _erode_rainfall_init_cuda(
 
 @jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_get_capas_cuda(
-    zs   : npt.NDArray[np.float64],
-    aquas: npt.NDArray[np.float64],
-    ekins: npt.NDArray[np.float64],
+    zs   : npt.NDArray[np.float32],
+    aquas: npt.NDArray[np.float32],
+    ekins: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
     sed_cap_fac: float = 1.0,
     v_cap: float = 16.,
-) -> npt.NDArray[np.float64]:
+) -> npt.NDArray[np.float32]:
     """Get sediment capacity.
 
     Parameters
