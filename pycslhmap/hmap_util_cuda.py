@@ -71,16 +71,18 @@ def _erode_rainfall_init_cuda(
         By default, will init any zero elements as sea levels at edges.
     ... 
     """
-
+    
     raise NotImplementedError("Cuda version of this func not yet complete.")
     
-
     npix_x, npix_y = data.shape
+    z_min = np.float32(z_min)
+    z_sea = np.float32(z_sea)
+    z_max = np.float32(z_max)
 
     # - init ans arrays -
     
     # adding an edge
-    soils = np.zeros((npix_x+2, npix_y+2))
+    soils = np.zeros((npix_x+2, npix_y+2), dtype=np.float32)
     #aquas = np.zeros_like(soils)
 
     # init soils
@@ -97,7 +99,7 @@ def _erode_rainfall_init_cuda(
     soils = np.where(soils <= np.float32(0.), np.float32(0.), soils)
 
     # init edges (i.e. const lvl water spawners)
-    z_edge = np.float32(z_sea - z_min)
+    z_edge = z_sea - z_min
     edges = np.empty_like(soils)
     edges[1:-1, 1:-1] = spawners
     edges[ 0, 1:-1] = np.where(spawners[   0], spawners[   0], z_edge)
@@ -112,14 +114,16 @@ def _erode_rainfall_init_cuda(
     
     # - fill basins -
     # (lakes / sea / whatev)
-    zs = np.full_like(soils, z_max) 
-    zs = aquas + soils    # actual heights (water + ground)
+    zs = edges.copy()
     zs[1:-1, 1:-1] = z_max - z_min    # first fill, then drain
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
+
+
+    # - CUDA GPU-acceleration -
+    
     still_working_on_it: bool = True
     while still_working_on_it:
-        still_working_on_it = False
         n_cycles += 1
         zs_new = np.empty_like(zs)    # *** potential for optimization?
         for i in prange(1, npix_x+1):
@@ -134,8 +138,8 @@ def _erode_rainfall_init_cuda(
         still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
         zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
 
+    
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
-
     ekins = np.zeros_like(soils)
     sedis = np.zeros_like(soils) # is zero because speed is zero
     

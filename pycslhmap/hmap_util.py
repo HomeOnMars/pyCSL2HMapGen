@@ -212,10 +212,7 @@ def _erode_rainfall_init(
         By default, will init any zero elements as sea levels at edges.
     ... 
     """
-
-    print("Test function - Not Yet finished.")
     
-
     npix_x, npix_y = data.shape
     z_min = np.float32(z_min)
     z_sea = np.float32(z_sea)
@@ -256,8 +253,7 @@ def _erode_rainfall_init(
     
     # - fill basins -
     # (lakes / sea / whatev)
-    zs = np.full_like(soils, z_max) 
-    zs = aquas + soils    # actual heights (water + ground)
+    zs = edges.copy()
     zs[1:-1, 1:-1] = z_max - z_min    # first fill, then drain
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
@@ -277,8 +273,8 @@ def _erode_rainfall_init(
         still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
         zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
 
+    
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
-
     ekins = np.zeros_like(soils)
     sedis = np.zeros_like(soils) # is zero because speed is zero
     
@@ -381,7 +377,7 @@ def _erode_rainfall_evolve(
         ekins: Kinetic energy per water density per pixel area in m^3/s^2.
         sedis: Sediment volume per pixel area.
         edges: Constant level water spawner level
-        Minimum value being zero for all.
+        Minimum value being zero for all (more digits for data precision).
         0 and -1 index in both x and y are edges.
         data are stored in [1:-1, 1:-1].
         Repeat- need to reset min level for soils to zero!
