@@ -94,18 +94,24 @@ def _erode_rainfall_init_cuda_sub(zs, soils, is_changed):
     cuda.syncthreads()
 
     # - do math -
-    z_new = min(
-        sarr_zs[ti-1, tj],
-        sarr_zs[ti+1, tj],
-        sarr_zs[ti, tj-1],
-        sarr_zs[ti, tj+1],
-    )
-    z_new = max(z_new, soil)
-    #sarr_zs[ti, tj] = z_new
+    not_done = False
+    for ki in range(cuda.blockDim.x + cuda.blockDim.y):
+        # level the lake height within the block
+        z_new = min(
+            sarr_zs[ti-1, tj],
+            sarr_zs[ti+1, tj],
+            sarr_zs[ti, tj-1],
+            sarr_zs[ti, tj+1],
+        )
+        z_new = max(z_new, soil)
+        if z_new < sarr_zs[ti, tj]:
+            not_done = True
+            sarr_zs[ti, tj] = z_new
+        cuda.syncthreads()
     
     # - write data back -
     zs[i, j] = z_new
-    if z_new < sarr_zs[ti, tj]:
+    if not_done:
         is_changed[0] = True
 
 
@@ -144,8 +150,6 @@ def _erode_rainfall_init_cuda(
         By default, will init any zero elements as sea levels at edges.
     ... 
     """
-    
-    print("** Warning: Cuda version of this func is currently broken.")
     
     npix_x, npix_y = data.shape
     z_min = np.float32(z_min)
