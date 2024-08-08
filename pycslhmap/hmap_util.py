@@ -184,9 +184,9 @@ def _erode_rainfall_init(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
-    z_min: float,
-    z_sea: float,
-    z_max: float,
+    z_min: np.float32,
+    z_sea: np.float32,
+    z_max: np.float32,
     sed_cap_fac: float = 1.0,
     sed_initial: float = 0.0,
     erosion_eff: float = 1.0,
@@ -200,7 +200,7 @@ def _erode_rainfall_init(
         Constant level water spawners height (incl. ground)
         use np.zeros_like(data) as default input.
 
-    z_sea: float
+    z_sea: np.float32
         Sea level.
         *** Warning: z_sea = 0 will disable sea level mechanics ***
 
@@ -217,6 +217,9 @@ def _erode_rainfall_init(
     
 
     npix_x, npix_y = data.shape
+    z_min = np.float32(z_min)
+    z_sea = np.float32(z_sea)
+    z_max = np.float32(z_max)
 
     # - init ans arrays -
     
@@ -235,7 +238,7 @@ def _erode_rainfall_init(
     soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
     soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
     soils -= z_min
-    soils = np.where(soils <= 0., 0., soils)
+    soils = np.where(soils <= np.float32(0.), np.float32(0.), soils)
 
     # init edges (i.e. const lvl water spawners)
     z_edge = z_sea - z_min
@@ -249,7 +252,7 @@ def _erode_rainfall_init(
     edges[0,-1], edges[-1,-1] = z_edge, z_edge
 
     # init aquas
-    aquas = np.where(edges > soils, edges - soils, 0.)
+    aquas = np.where(edges > soils, edges - soils, np.float32(0.))
     
     # - fill basins -
     # (lakes / sea / whatev)
@@ -260,7 +263,6 @@ def _erode_rainfall_init(
     n_cycles = 0    # debug
     still_working_on_it: bool = True
     while still_working_on_it:
-        still_working_on_it = False
         n_cycles += 1
         zs_new = np.empty_like(zs)    # *** potential for optimization?
         for i in prange(1, npix_x+1):

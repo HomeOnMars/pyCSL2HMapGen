@@ -43,9 +43,9 @@ def _erode_rainfall_init_cuda(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
     pix_widxy: tuple[float, float],
-    z_min: float,
-    z_sea: float,
-    z_max: float,
+    z_min: np.float32,
+    z_sea: np.float32,
+    z_max: np.float32,
     sed_cap_fac: float = 1.0,
     sed_initial: float = 0.0,
     erosion_eff: float = 1.0,
@@ -94,10 +94,10 @@ def _erode_rainfall_init_cuda(
     soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
     soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
     soils -= z_min
-    soils = np.where(soils <= 0., 0., soils)
+    soils = np.where(soils <= np.float32(0.), np.float32(0.), soils)
 
     # init edges (i.e. const lvl water spawners)
-    z_edge = z_sea - z_min
+    z_edge = np.float32(z_sea - z_min)
     edges = np.empty_like(soils)
     edges[1:-1, 1:-1] = spawners
     edges[ 0, 1:-1] = np.where(spawners[   0], spawners[   0], z_edge)
@@ -108,7 +108,7 @@ def _erode_rainfall_init_cuda(
     edges[0,-1], edges[-1,-1] = z_edge, z_edge
 
     # init aquas
-    aquas = np.where(edges > soils, edges - soils, 0.)
+    aquas = np.where(edges > soils, edges - soils, np.float32(0.))
     
     # - fill basins -
     # (lakes / sea / whatev)
