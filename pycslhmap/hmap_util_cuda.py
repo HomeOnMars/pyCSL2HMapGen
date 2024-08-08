@@ -12,7 +12,7 @@ Author: HomeOnMars
 
 from typing import Self
 
-from numba import jit, prange, cuda
+from numba import jit, prange, cuda, float32
 import numpy as np
 from numpy import typing as npt
 
@@ -34,11 +34,84 @@ else:
 
 
 #-----------------------------------------------------------------------------#
+#    Constants
+#-----------------------------------------------------------------------------#
+
+# Threads per block - controls shared memory usage for GPU
+# The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
+# Example see https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
+CUDA_TPB : int = 16
+CUDA_TPB_PLUS_2: int = CUDA_TPB+2
+
+
+
+#-----------------------------------------------------------------------------#
 #    Erosion: Rainfall
 #-----------------------------------------------------------------------------#
 
 
-@cuda.jit
+@cuda.jit(fastmath=True)
+def _erode_rainfall_init_cuda_sub(
+    zs    : npt.NDArray[np.float32],
+    soils : npt.NDArray[np.float32],
+    have_changes: npt.NDArray[np.bool_],
+):
+    """CUDA GPU-accelerated sub process."""
+    n_cycles = 0    # debug
+
+    # - define shared data structure -
+    # (shared by the threads in the same block)
+    # Note: the 4 corners will be undefined.
+    # Note: the shared array 'shape' arg
+    #    must take integer literals instead of integer
+    sarr_zs = cuda.shared.array(
+        shape=(CUDA_TPB_PLUS_2, CUDA_TPB_PLUS_2), dtype=float32)
+
+    # - get thread coordinates -
+    i, j = cuda.grid(2)
+    # add 1 to account for the edges in the data
+    i += 1
+    j += 1
+    if i + 1 >= zs.shape[0] or j + 1 >= zs.shape[1]:
+        # do nothing if out of bound
+        return
+    # add 1 to account for the edges in the data
+    ti = cuda.threadIdx.x + 1
+    tj = cuda.threadIdx.y + 1
+
+    # - preload data -
+    soil = soils[i, j]
+    sarr_zs[ti, tj] = zs[i, j]
+    # load edges
+    if ti == 0:
+        sarr_zs[ti-1, tj] = zs[i-1, j]
+    if ti == CUDA_TPB-1 or i + 2 == zs.shape[0]:
+        sarr_zs[ti+1, tj] = zs[i+1, j]
+    if tj == 0:
+        sarr_zs[ti, tj-1] = zs[i, j-1]
+    if tj == CUDA_TPB-1 or j + 2 == zs.shape[1]:
+        sarr_zs[ti, tj+1] = zs[i, j+1]
+    cuda.syncthreads()
+
+    # - do math -
+    z_new = min(
+        sarr_zs[ti-1, tj],
+        sarr_zs[ti+1, tj],
+        sarr_zs[ti, tj-1],
+        sarr_zs[ti, tj+1],
+    )
+    z_new = max(z_new, soil)
+    is_changed = z_new < sarr_zs[ti, tj]
+    #sarr_zs[ti, tj] = z_new
+    
+    # - write data back -
+    zs[i, j] = z_new
+    have_changes[i, j] = is_changed
+
+
+
+
+@jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_init_cuda(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
@@ -72,12 +145,19 @@ def _erode_rainfall_init_cuda(
     ... 
     """
     
-    raise NotImplementedError("Cuda version of this func not yet complete.")
+    # raise NotImplementedError("Cuda version of this func not yet complete.")
     
     npix_x, npix_y = data.shape
     z_min = np.float32(z_min)
     z_sea = np.float32(z_sea)
     z_max = np.float32(z_max)
+    # tpb: threads per block
+    cuda_tpb_shape = (CUDA_TPB, CUDA_TPB)
+    # bpg: blocks per grid
+    cuda_bpg_shape = (
+        (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
+        (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
+    )
 
     # - init ans arrays -
     
@@ -118,26 +198,13 @@ def _erode_rainfall_init_cuda(
     zs[1:-1, 1:-1] = z_max - z_min    # first fill, then drain
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
-
-
     # - CUDA GPU-acceleration -
-    
-    still_working_on_it: bool = True
-    while still_working_on_it:
+    have_changes = np.zeros_like(soils, dtype=np.bool_)
+    have_changes[1:-1, 1:-1] = np.bool_(True)    # make sure edges are False
+    while np.any(have_changes):
         n_cycles += 1
-        zs_new = np.empty_like(zs)    # *** potential for optimization?
-        for i in prange(1, npix_x+1):
-            for j in range(1, npix_y+1):
-                z_new = min(
-                    zs[i-1, j],
-                    zs[i+1, j],
-                    zs[i, j-1],
-                    zs[i, j+1],
-                )
-                zs_new[i, j] = max(z_new, soils[i, j])
-        still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
-        zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
-
+        _erode_rainfall_init_cuda_sub[
+        cuda_bpg_shape, cuda_tpb_shape](zs, soils, have_changes)
     
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
     ekins = np.zeros_like(soils)
