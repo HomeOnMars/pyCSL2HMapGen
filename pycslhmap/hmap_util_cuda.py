@@ -158,7 +158,6 @@ def _erode_rainfall_init_cuda(
         (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
         (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
     )
-    print(cuda_bpg_shape)
 
     # - init ans arrays -
     
