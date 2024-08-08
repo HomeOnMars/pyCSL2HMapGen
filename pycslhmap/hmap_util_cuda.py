@@ -83,13 +83,13 @@ def _erode_rainfall_init_cuda_sub(zs, soils, is_changed):
     soil = soils[i, j]
     sarr_zs[ti, tj] = zs[i, j]
     # load edges
-    if ti == 0:
+    if ti == 1:
         sarr_zs[ti-1, tj] = zs[i-1, j]
-    if ti == CUDA_TPB-1 or i+2 == nx_p2:
+    if ti == CUDA_TPB or i+2 == nx_p2:
         sarr_zs[ti+1, tj] = zs[i+1, j]
-    if tj == 0:
+    if tj == 1:
         sarr_zs[ti, tj-1] = zs[i, j-1]
-    if tj == CUDA_TPB-1 or j+2 == ny_p2:
+    if tj == CUDA_TPB or j+2 == ny_p2:
         sarr_zs[ti, tj+1] = zs[i, j+1]
     cuda.syncthreads()
 
@@ -209,11 +209,6 @@ def _erode_rainfall_init_cuda(
         _erode_rainfall_init_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
                 zs_cuda, soils_cuda, is_changed_cuda)
         cuda.synchronize()
-        # debug
-        if n_cycles % 100 == 0:
-            print(n_cycles, cuda_bpg_shape, cuda_tpb_shape)
-        if n_cycles > 1500:
-            break
 
     zs = zs_cuda.copy_to_host()
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
