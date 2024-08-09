@@ -10,4 +10,4 @@ Author: HomeOnMars
 
 from .hmap import HMap
 from .hmap_csl import CSL2HMap
-from .import_hmap import get_CSL_height_maps
+from .import_tiff import get_CSL_height_maps
