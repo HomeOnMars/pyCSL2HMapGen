@@ -16,20 +16,27 @@ from numba import jit, prange, cuda, float32
 import numpy as np
 from numpy import typing as npt
 
+has_cuda : bool = False
+CAN_CUDA : bool = False
 try:
-    CAN_CUDA = cuda.detect()
+    has_cuda = cuda.detect()
+    CAN_CUDA = cuda.is_available()
 except Exception as e:
     print(f"**  Warning: Error during initializing GPU acceleration:\n\t{e}")
     CAN_CUDA = False
 
 if CAN_CUDA:
-    print("\nNote   :\n\t"
-          + "Cuda supported devices found."
-          + " GPU-accelerated functions available.\n")
+    print(f"\nNote   : {__name__}:\n\t"
+          + "Cuda supported devices and drivers found."
+          + " GPU-accelerated functions available.")
+elif has_cuda:
+    print(f"\n**  Warning: {__name__}:\n\t"
+          + "Cuda supported devices found, but drivers library NOT found."
+          + " GPU-accelerated functions UNAVAILABLE.")
 else:
-    print("\n*   Warning:\n\t"
+    print(f"\n*   Warning: {__name__}:\n\t"
           + "NO Cuda supported devices found."
-          + " GPU-accelerated functions UNAVAILABLE.\n")
+          + " GPU-accelerated functions UNAVAILABLE.")
 
 
 

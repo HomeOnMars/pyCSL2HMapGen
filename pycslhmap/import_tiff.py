@@ -11,22 +11,21 @@ Author: HomeOnMars
 """
 
 
-# Functions
-
-
+# Dependencies
 
 import numpy as np
 from numpy import pi
 from scipy.interpolate import RegularGridInterpolator
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 import png
-CAN_GDAL = False
+CAN_GDAL : bool = False
 try:
     from osgeo import gdal
     gdal.UseExceptions()
     CAN_GDAL = True
 except ModuleNotFoundError as e:
-    print(f"**  Warning: {e}\nReal world import functionality disabled.")
+    print(f"\n*   Warning: {__name__}:\n\t"
+          + f"{e}. Real world import functionality UNAVAILABLE.")
 
 
 
