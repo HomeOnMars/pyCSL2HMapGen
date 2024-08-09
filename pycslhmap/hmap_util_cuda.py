@@ -53,12 +53,12 @@ CUDA_TPB_PLUS_2: int = CUDA_TPB+2
 
 
 #-----------------------------------------------------------------------------#
-#    Erosion: Rainfall
+#    Erosion: Rainfall: Init
 #-----------------------------------------------------------------------------#
 
 
 @cuda.jit(fastmath=True)
-def _erode_rainfall_init_cuda_sub(zs, soils, is_changed):
+def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     """CUDA GPU-accelerated sub process.
 
     Input data type: cuda.cudadrv.devicearray.DeviceNDArray
@@ -124,45 +124,23 @@ def _erode_rainfall_init_cuda_sub(zs, soils, is_changed):
 
 
 
-#@jit(nopython=True, fastmath=True, parallel=True)
-def _erode_rainfall_init_cuda(
-    data : npt.NDArray[np.float32],    # ground level
-    spawners: npt.NDArray[np.float32],
-    pix_widxy: tuple[float, float],
-    z_min: np.float32,
-    z_sea: np.float32,
-    z_max: np.float32,
-    sed_cap_fac: float = 1.0,
-    sed_initial: float = 0.0,
-    erosion_eff: float = 1.0,
-):
-    """Initialization for Rainfall erosion.
+def _erode_rainfall_init_sub_cuda(
+    soils: npt.NDArray[np.float32],
+    edges: npt.NDArray[np.float32],
+    z_range: np.float32,
+) -> tuple[npt.NDArray[np.float32], int]:
+    """CUDA version of the sub process for rainfall erosion init.
+
+    Filling the basins.
     
-    data: (npix_x, npix_y)-shaped numpy array
-        initial height.
-
-    spawners: (npix_x, npix_y)-shaped numpy array
-        Constant level water spawners height (incl. ground)
-        use np.zeros_like(data) as default input.
-
-    z_sea: float
-        Sea level.
-        *** Warning: z_sea = 0 will disable sea level mechanics ***
-
-    Returns
-    -------
+    Parameters
+    ----------
     ...
-    edges: (npix_x+2, npix_y+2)-shaped numpy array
-        Constant river source. acts as a spawner.
-        By default, will init any zero elements as sea levels at edges.
-    ... 
+    z_range: np.float32
+        z_range == z_max - z_min
     """
-    
-    npix_x, npix_y = data.shape
-    z_min = np.float32(z_min)
-    z_sea = np.float32(z_sea)
-    z_max = np.float32(z_max)
     # tpb: threads per block
+    npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
     # bpg: blocks per grid
     cuda_bpg_shape = (
@@ -170,43 +148,10 @@ def _erode_rainfall_init_cuda(
         (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
     )
 
-    # - init ans arrays -
-    
-    # adding an edge
-    soils = np.zeros((npix_x+2, npix_y+2), dtype=np.float32)
-    #aquas = np.zeros_like(soils)
-
-    # init soils
-    soils[1:-1, 1:-1] = data
-    soils[ 0,   1:-1] = data[ 0]
-    soils[-1,   1:-1] = data[-1]
-    soils[1:-1,    0] = data[:, 0]
-    soils[1:-1,   -1] = data[:,-1]
-    soils[ 0, 0] = min(soils[ 0, 1], soils[ 1, 0])
-    soils[-1, 0] = min(soils[-1, 1], soils[-2, 0])
-    soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
-    soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
-    soils -= z_min
-    soils = np.where(soils <= np.float32(0.), np.float32(0.), soils)
-
-    # init edges (i.e. const lvl water spawners)
-    z_edge = z_sea - z_min
-    edges = np.empty_like(soils)
-    edges[1:-1, 1:-1] = spawners
-    edges[ 0, 1:-1] = np.where(spawners[   0], spawners[   0], z_edge)
-    edges[-1, 1:-1] = np.where(spawners[  -1], spawners[  -1], z_edge)
-    edges[1:-1,  0] = np.where(spawners[:, 0], spawners[:, 0], z_edge)
-    edges[1:-1, -1] = np.where(spawners[:,-1], spawners[:,-1], z_edge)
-    edges[0, 0], edges[-1, 0] = z_edge, z_edge
-    edges[0,-1], edges[-1,-1] = z_edge, z_edge
-
-    # init aquas
-    aquas = np.where(edges > soils, edges - soils, np.float32(0.))
-    
     # - fill basins -
     # (lakes / sea / whatev)
     zs = edges.copy()
-    zs[1:-1, 1:-1] = z_max - z_min    # first fill, then drain
+    zs[1:-1, 1:-1] = z_range    # first fill, then drain
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
     # - CUDA GPU-acceleration -
@@ -216,17 +161,18 @@ def _erode_rainfall_init_cuda(
     while is_changed_cuda[0]:
         is_changed_cuda[0] = False
         n_cycles += 1
-        _erode_rainfall_init_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
+        _erode_rainfall_init_sub_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
                 zs_cuda, soils_cuda, is_changed_cuda)
         cuda.synchronize()
 
     zs = zs_cuda.copy_to_host()
-    aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
-    ekins = np.zeros_like(soils)
-    sedis = np.zeros_like(soils) # is zero because speed is zero
-    
-    return soils, aquas, ekins, sedis, edges, n_cycles
+    return zs, n_cycles
 
+
+
+#-----------------------------------------------------------------------------#
+#    Erosion: Rainfall: Evolve
+#-----------------------------------------------------------------------------#
 
 
 @jit(nopython=True, fastmath=True, parallel=True)

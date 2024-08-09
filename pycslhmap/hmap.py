@@ -13,7 +13,6 @@ from .hmap_util import (
     _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
     _erode_rainfall_init, _erode_rainfall_evolve,
 )
-from .hmap_util_cuda import _erode_rainfall_init_cuda
 
 from typing import Self
 

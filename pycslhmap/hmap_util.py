@@ -9,6 +9,10 @@ Author: HomeOnMars
 
 
 # Dependencies
+from .hmap_util_cuda import (
+    CAN_CUDA,
+    _erode_rainfall_init_sub_cuda,
+)
 
 from typing import Self
 
@@ -175,24 +179,73 @@ def _get_z_and_dz(
 
 
 #-----------------------------------------------------------------------------#
-#    Erosion: Rainfall
+#    Erosion: Rainfall: Init
 #-----------------------------------------------------------------------------#
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
+def _erode_rainfall_init_sub_nb(
+    soils: npt.NDArray[np.float32],
+    edges: npt.NDArray[np.float32],
+    z_range: np.float32,
+) -> tuple[npt.NDArray[np.float32], int]:
+    """Numba version of the sub process for rainfall erosion init.
+
+    Filling the basins.
+    
+    Parameters
+    ----------
+    ...
+    z_range: np.float32
+        z_range == z_max - z_min
+    """
+    
+    npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
+    
+    # - fill basins -
+    # (lakes / sea / whatev)
+    zs = edges.copy()
+    zs[1:-1, 1:-1] = z_range    # first fill, then drain
+    # note: zs' edge elems are fixed
+    n_cycles : int = 0    # debug
+    still_working_on_it: bool = True
+    while still_working_on_it:
+        n_cycles += 1
+        zs_new = np.empty_like(zs)    # *** potential for optimization?
+        for i in prange(1, npix_x+1):
+            for j in range(1, npix_y+1):
+                z_new = min(
+                    zs[i-1, j],
+                    zs[i+1, j],
+                    zs[i, j-1],
+                    zs[i, j+1],
+                )
+                zs_new[i, j] = max(z_new, soils[i, j])
+        still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
+        zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
+    return zs, n_cycles
+
+
+
+_erode_rainfall_init_sub_default = (
+    _erode_rainfall_init_sub_cuda if CAN_CUDA else
+    _erode_rainfall_init_sub_nb
+)
+
+
+
 def _erode_rainfall_init(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
-    pix_widxy: tuple[float, float],
     z_min: np.float32,
     z_sea: np.float32,
     z_max: np.float32,
-    sed_cap_fac: float = 1.0,
-    sed_initial: float = 0.0,
-    erosion_eff: float = 1.0,
+    sub_func = _erode_rainfall_init_sub_default,
 ):
     """Initialization for Rainfall erosion.
-    
+
+    Parameters
+    ----------
     data: (npix_x, npix_y)-shaped numpy array
         initial height.
 
@@ -200,9 +253,15 @@ def _erode_rainfall_init(
         Constant level water spawners height (incl. ground)
         use np.zeros_like(data) as default input.
 
-    z_sea: np.float32
-        Sea level.
+    z_min, z_sea, z_max: np.float32
+        Minimum height allowed / Sea level / Maximum height allowed.
         *** Warning: z_sea = 0 will disable sea level mechanics ***
+        
+    sub_func: function
+        Provide the function for the sub process.
+        Choose between _erode_rainfall_init_sub_nb()   (CPU)
+            and        _erode_rainfall_init_sub_cuda() (GPU)
+        
 
     Returns
     -------
@@ -253,33 +312,20 @@ def _erode_rainfall_init(
     
     # - fill basins -
     # (lakes / sea / whatev)
-    zs = edges.copy()
-    zs[1:-1, 1:-1] = z_max - z_min    # first fill, then drain
-    # note: zs' edge elems are fixed
-    n_cycles = 0    # debug
-    still_working_on_it: bool = True
-    while still_working_on_it:
-        n_cycles += 1
-        zs_new = np.empty_like(zs)    # *** potential for optimization?
-        for i in prange(1, npix_x+1):
-            for j in range(1, npix_y+1):
-                z_new = min(
-                    zs[i-1, j],
-                    zs[i+1, j],
-                    zs[i, j-1],
-                    zs[i, j+1],
-                )
-                zs_new[i, j] = max(z_new, soils[i, j])
-        still_working_on_it = np.any(zs_new[1:-1, 1:-1] < zs[1:-1, 1:-1])
-        zs[1:-1, 1:-1] = zs_new[1:-1, 1:-1]
-
+    zs, n_cycles = sub_func(soils, edges, z_range=z_max-z_min)
     
+    # fix data
     aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
     ekins = np.zeros_like(soils)
     sedis = np.zeros_like(soils) # is zero because speed is zero
     
     return soils, aquas, ekins, sedis, edges, n_cycles
 
+
+
+#-----------------------------------------------------------------------------#
+#    Erosion: Rainfall: Evolve
+#-----------------------------------------------------------------------------#
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
