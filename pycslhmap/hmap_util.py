@@ -377,7 +377,7 @@ def _erode_rainfall_get_capas(
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
-def _erode_rainfall_evolve(
+def _erode_rainfall_evolve_sub_nb(
     soils: npt.NDArray[np.float32],
     aquas: npt.NDArray[np.float32],
     ekins: npt.NDArray[np.float32],
@@ -388,13 +388,14 @@ def _erode_rainfall_evolve(
     z_sea: float,
     z_max: float,
     n_step: int = 1,
-    rain_per_step:float = 2**(-4),
+    rain_per_step:float = 2.**(-4),
     #rains_config: npt.NDArray[np.float32],
     flow_eff   : float = 0.25,
     visco_kin_aqua: float = 1e-6,
     visco_kin_soil: float = 1.0,
     sed_cap_fac: float = 1.0,
     erosion_eff: float = 0.125,
+    hole_depth : float = 2.**(-8), #0.,
     v_cap: float = 16.,
     g : float = 9.8,
 ):
@@ -450,8 +451,14 @@ def _erode_rainfall_evolve(
         Kinematic visocity of water and soils in SI units (m^2/s).
         It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
         
-    erosion_eff : float
+    erosion_eff: float
         Erosion efficiency. Should be 0. < erosion_eff <= 1.
+
+    hole_depth: float
+        Maximum depth of the hole allowed by the erosion process to dig
+            per step. Should be >= 0.
+        If > 0., the erosion process may dig lakes.
+            (but may also dig single pixel holes)
         
     v_cap: float
         Characteristic velocity for sediment capacity calculations, in m/s.
@@ -476,7 +483,6 @@ def _erode_rainfall_evolve(
     # the boundary will not be changed
     edges_inds_x, edges_inds_y = np.where(edges)
     edges_n = len(edges_inds_x)
-    visco_kin = visco_kin_aqua
     
     for s in range(n_step):
 
@@ -596,6 +602,8 @@ def _erode_rainfall_evolve(
                     #        W_f/rho/s**2 = (mu/rho)*vmax = (mu/rho) * sqrt(6*ek/aq)
                     #        where mu/rho is the kinetic viscosity of water.
                     # Note: we already know that the aq != 0
+                    visco_kin = (    # getting muddy water viscosity
+                        (aq - se) * visco_kin_aqua + se * visco_kin_soil) / aq
                     ek_d += visco_kin * (6*(ek-ek_d)/aq)**0.5
                     ek_d = min(ek_d, ek)    # make sure ekins don't go negative
                     ekins_dnew[i, j] -= ek_d
@@ -611,12 +619,21 @@ def _erode_rainfall_evolve(
                 if aq:
                     se = sedis[i, j] + sedis_dnew[i, j]
                     ca = capas[i, j]
+                    dzs = np.empty(N_ADJ)    # altitude change
+                    dzs[0] = zs[i-1, j]
+                    dzs[1] = zs[i+1, j]
+                    dzs[2] = zs[i, j-1]
+                    dzs[3] = zs[i, j+1]
+                    dzs -= z
                     # d_se: extra sediments to be absorbed by water
                     d_se = (ca - se) * erosion_eff
-                    if d_se > 0:
+                    if d_se > 0.:
                         # cannot dig under the bedrock
-                        # ****** Add code to prevent digging a hole ******
-                        d_se = min(d_se, soils[i, j]) #, -np.min(dzs))
+                        d_se = min(
+                            d_se,
+                            soils[i, j],
+                            max(-np.min(dzs)+hole_depth, 0.),
+                        )
                     else:
                         # cannot give more than have
                         d_se = max(d_se, -aq, -se)
@@ -638,7 +655,10 @@ def _erode_rainfall_evolve(
             sedis[i, j] = 0.
     
     return soils, aquas, ekins, sedis, capas
-    
+
+
+
+_erode_rainfall_evolve = _erode_rainfall_evolve_sub_nb
 
 
 #-----------------------------------------------------------------------------#
