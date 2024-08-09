@@ -615,7 +615,7 @@ def _erode_rainfall_evolve(
                     d_se = (ca - se) * erosion_eff
                     if d_se > 0:
                         # cannot dig under the bedrock
-                        # ****** Add code to prevet digging a hole ******
+                        # ****** Add code to prevent digging a hole ******
                         d_se = min(d_se, soils[i, j]) #, -np.min(dzs))
                     else:
                         # cannot give more than have
