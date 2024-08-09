@@ -334,9 +334,9 @@ def _erode_rainfall_get_capas(
     zs   : npt.NDArray[np.float32],
     aquas: npt.NDArray[np.float32],
     ekins: npt.NDArray[np.float32],
-    pix_widxy: tuple[float, float],
-    sed_cap_fac: float = 1.0,
-    v_cap: float = 16.,
+    pix_widxy: tuple[np.float32, np.float32],
+    sed_cap_fac: np.float32 = np.float32(1.0),
+    v_cap: np.float32 = np.float32(16.),
 ) -> npt.NDArray[np.float32]:
     """Get sediment capacity.
 
@@ -360,7 +360,7 @@ def _erode_rainfall_get_capas(
     for i in prange(1, npix_x+1):
         for j in prange(1, npix_y+1):
             aq = aquas[i, j]
-            if aq:
+            if not np.isclose(aq, 0.):
                 z  = zs[i, j]
                 ek = ekins[i, j]
                 # average velocity (regulated to 0. < slope < 1.)
@@ -384,21 +384,22 @@ def _erode_rainfall_evolve_sub_nb(
     ekins: npt.NDArray[np.float32],
     sedis: npt.NDArray[np.float32],
     edges: npt.NDArray[np.float32],
-    pix_widxy: tuple[float, float],
-    #z_min: float,
-    z_sea: float,
-    z_max: float,
+    pix_widxy: tuple[np.float32, np.float32],
+    #z_min: np.float32,
+    z_sea: np.float32,
+    z_max: np.float32,
     n_step: int = 1,
-    rain_per_step:float = 2.**(-4),
+    rain_per_step: np.float32 = np.float32(2.**(-4)),
     #rains_config: npt.NDArray[np.float32],
-    flow_eff   : float = 0.25,
-    visco_kin_aqua: float = 1e-6,
-    visco_kin_soil: float = 1.0,
-    sed_cap_fac: float = 1.0,
-    erosion_eff: float = 0.125,
-    hole_depth : float = 2.**(-8), #0.,
-    v_cap: float = 16.,
-    g : float = 9.8,
+    flow_eff   : np.float32 = np.float32(0.25),
+    visco_kin_aqua: np.float32 = np.float32(1e-6),
+    visco_kin_soil: np.float32 = np.float32(1.0),
+    sed_cap_fac: np.float32 = np.float32(1.0),
+    erosion_eff: np.float32 = np.float32(0.125),
+    diffuse_eff: np.float32 = np.float32(0.25),
+    hole_depth : np.float32 = np.float32(2.**(-8)),
+    v_cap: np.float32 = np.float32(16.),
+    g : np.float32 = np.float32(9.8),
 ):
     """Erosion through simulating falling rains.
 
@@ -450,10 +451,16 @@ def _erode_rainfall_evolve_sub_nb(
 
     visco_kin_aqua, visco_kin_soil: float
         Kinematic visocity of water and soils in SI units (m^2/s).
+        Must have visco_kin_soil >= visco_kin_aqua.
         It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
         
     erosion_eff: float
-        Erosion efficiency. Should be 0. < erosion_eff <= 1.
+        Erosion/deposition efficiency. Should be 0. <= erosion_eff <= 1.
+        Setting it to 0. will disable erosion and deposition.
+
+    diffuse_eff: float
+        Diffusion efficiency. Should be 0. <= diffuse_eff <= 1.
+        Controls how fast sediments and kinetic energies spread in lakes etc.
 
     hole_depth: float
         Maximum depth of the hole allowed by the erosion process to dig
@@ -517,6 +524,7 @@ def _erode_rainfall_evolve_sub_nb(
                     ek = ekins[i, j]
                     se = sedis[i, j]
                     ca = capas[i, j]
+                    soil = soils[i, j]
                     # arbitrarily define the array as
                     dzs[0] = zs[i-1, j]
                     dzs[1] = zs[i+1, j]
@@ -569,6 +577,7 @@ def _erode_rainfall_evolve_sub_nb(
                     wrc = np.sum(wms)    # re-normalize
 
                     ek_d = wrc / aq * ek
+                    se_d = wrc / aq * se
                     if not np.isclose(wrc, 0.):
                         # move water
                         aquas_dnew[i,   j] -= wrc
@@ -578,14 +587,12 @@ def _erode_rainfall_evolve_sub_nb(
                         aquas_dnew[i, j+1] += wms[3]
                         # transfer kinetic energy
                         # will update ekins later
-                        #ek_d = wrc / aq * ek
                         #ekins_dnew[i,   j] -= ek_d
                         ekins_dnew[i-1, j] += ek_d * (wms[0] / wrc) + eks[0]
                         ekins_dnew[i+1, j] += ek_d * (wms[1] / wrc) + eks[1]
                         ekins_dnew[i, j-1] += ek_d * (wms[2] / wrc) + eks[2]
                         ekins_dnew[i, j+1] += ek_d * (wms[3] / wrc) + eks[3]
                         # transfer sediments
-                        se_d = wrc / aq * se
                         sedis_dnew[i,   j] -= se_d
                         sedis_dnew[i-1, j] += se_d * (wms[0] / wrc)
                         sedis_dnew[i+1, j] += se_d * (wms[1] / wrc)
@@ -601,15 +608,70 @@ def _erode_rainfall_evolve_sub_nb(
                     #        W_f/rho/s**2 = (mu/rho)*vmax = (mu/rho) * sqrt(6*ek/aq)
                     #        where mu/rho is the kinetic viscosity of water.
                     # Note: we already know that the aq != 0
-                    visco_kin = (    # getting muddy water viscosity
-                        (aq - se) * visco_kin_aqua + se * visco_kin_soil) / aq
-                    ek_d += visco_kin * (6*(ek-ek_d)/aq)**0.5
+                    aq_mi = aq - wrc    # mi: me (this pixel)
+                    se_mi = se + se_d
+                    if not np.isclose(aq_mi, 0):
+                        visco_kin = max(
+                            visco_kin_aqua,    # make sure it doesn't go negative
+                            # getting muddy water viscosity
+                            ((aq_mi - se_mi) * visco_kin_aqua + se_mi * visco_kin_soil) / aq_mi)
+                        ek_d += visco_kin * (6*(ek-ek_d)/aq)**0.5
                     ek_d = min(ek_d, ek)    # make sure ekins don't go negative
                     ekins_dnew[i, j] -= ek_d
+                    ek_mi = ek + ek_d    # mi: me (this pixel)
 
+                    
+                    # - diffusion -
+                    
+                    # ne: neightbour
+                    aq_ne = aquas[i+1, j]
+                    # aq_sl: shared water level between two pixels
+                    aq_sl = min(aq_mi + soil, aq_ne + soils[i+1, j]) - max(soil, soils[i+1, j])
+                    if aq_sl > 0 and not np.isclose(aq_mi, 0.) and not np.isclose(aq_ne, 0.):
+                        # diffusion can only happen when the water are in contact
 
-                    # diffusion
-        
+                        ek_ne = ekins[i+1, j]
+                        # asking the density of ekin to be similar over time
+                        ek_diff = (aq_ne*ek_mi - aq_mi*ek_ne) / (aq_mi + aq_ne) * diffuse_eff
+                        ek_diff = (
+                            min(ek_diff,  ek_mi*aq_sl/aq_mi) if ek_diff > 0.0 else
+                            max(ek_diff, -ek_ne*aq_sl/aq_ne)
+                        )
+                        ekins_dnew[i,   j] -= ek_diff
+                        ekins_dnew[i+1, j] += ek_diff
+                        
+                        se_ne = sedis[i+1, j]
+                        se_diff = (aq_ne*se_mi - aq_mi*se_ne) / (aq_mi + aq_ne) * diffuse_eff
+                        se_diff = (
+                            min(se_diff,  se_mi*aq_sl/aq_mi) if se_diff > 0.0 else
+                            max(se_diff, -se_ne*aq_sl/aq_ne)
+                        )
+                        sedis_dnew[i,   j] -= se_diff
+                        sedis_dnew[i+1, j] += se_diff
+
+                    aq_ne, aq_mi = aquas[i, j+1], aq - wrc
+                    aq_sl = min(aq_mi, aq_ne) - max(soil, soils[i, j+1])
+                    if aq_sl > 0 and not np.isclose(aq_mi, 0.) and not np.isclose(aq_ne, 0.):
+                        # diffusion can only happen when the water are in contact
+                        
+                        ek_ne = ekins[i, j+1]
+                        ek_diff = (aq_ne*ek_mi - aq_mi*ek_ne) / (aq_mi + aq_ne) * diffuse_eff
+                        ek_diff = (
+                            min(ek_diff,  ek_mi*aq_sl/aq_mi) if ek_diff > 0.0 else
+                            max(ek_diff, -ek_ne*aq_sl/aq_ne)
+                        )
+                        ekins_dnew[i, j  ] -= ek_diff
+                        ekins_dnew[i, j+1] += ek_diff
+                        
+                        se_ne = sedis[i, j+1]
+                        se_diff = (aq_ne*se_mi - aq_mi*se_ne) / (aq_mi + aq_ne) * diffuse_eff
+                        se_diff = (
+                            min(se_diff,  se_mi*aq_sl/aq_mi) if se_diff > 0.0 else
+                            max(se_diff, -se_ne*aq_sl/aq_ne)
+                        )
+                        sedis_dnew[i, j  ] -= se_diff
+                        sedis_dnew[i, j+1] += se_diff
+
         
         # - do erosion -
         for i in prange(1, npix_x+1):
