@@ -48,7 +48,40 @@ else:
 # The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
 # Example see https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
 CUDA_TPB : int = 16
-CUDA_TPB_PLUS_2: int = CUDA_TPB+2
+CUDA_TPB_P2: int = CUDA_TPB+2
+
+
+
+#-----------------------------------------------------------------------------#
+#    Device Functions
+#-----------------------------------------------------------------------------#
+
+
+@cuda.jit(device=True)
+def device_read_sarr_with_edges(
+    in_arr, out_sarr,
+    i, j, ti, tj,
+):
+    """Read data from global memory into shared array.
+
+    Assuming data has an 'edge',
+        i.e. extra row & column at both the beginning and the end.
+        So ti, tj should be within 1 <= ti <= CUDA_TPB
+        ans i,  j should be within 1 <=  i <= nx_p2 - 2
+    """
+    # nx_p2 = n pixel at x direction plus 2
+    nx_p2, ny_p2 = in_arr.shape
+    out_sarr[ti, tj] = in_arr[i, j]
+    # load edges
+    if ti == 1:
+        out_sarr[ti-1, tj] = in_arr[i-1, j]
+    if ti == CUDA_TPB or i+2 == nx_p2:
+        out_sarr[ti+1, tj] = in_arr[i+1, j]
+    if tj == 1:
+        out_sarr[ti, tj-1] = in_arr[i, j-1]
+    if tj == CUDA_TPB or j+2 == ny_p2:
+        out_sarr[ti, tj+1] = in_arr[i, j+1]
+    return
 
 
 
@@ -70,7 +103,7 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
     sarr_zs = cuda.shared.array(
-        shape=(CUDA_TPB_PLUS_2, CUDA_TPB_PLUS_2), dtype=float32)
+        shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=float32)
 
     nx_p2, ny_p2 = zs.shape
 
@@ -88,16 +121,7 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
 
     # - preload data -
     soil = soils[i, j]
-    sarr_zs[ti, tj] = zs[i, j]
-    # load edges
-    if ti == 1:
-        sarr_zs[ti-1, tj] = zs[i-1, j]
-    if ti == CUDA_TPB or i+2 == nx_p2:
-        sarr_zs[ti+1, tj] = zs[i+1, j]
-    if tj == 1:
-        sarr_zs[ti, tj-1] = zs[i, j-1]
-    if tj == CUDA_TPB or j+2 == ny_p2:
-        sarr_zs[ti, tj+1] = zs[i, j+1]
+    device_read_sarr_with_edges(zs, sarr_zs, i, j, ti, tj)
     cuda.syncthreads()
 
     # - do math -
@@ -123,7 +147,6 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
 
 
 
-
 def _erode_rainfall_init_sub_cuda(
     soils: npt.NDArray[np.float32],
     edges: npt.NDArray[np.float32],
@@ -139,8 +162,8 @@ def _erode_rainfall_init_sub_cuda(
     z_range: np.float32
         z_range == z_max - z_min
     """
-    # tpb: threads per block
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
+    # tpb: threads per block
     cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
     # bpg: blocks per grid
     cuda_bpg_shape = (
