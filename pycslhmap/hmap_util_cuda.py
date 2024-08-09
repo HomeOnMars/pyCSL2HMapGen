@@ -246,7 +246,10 @@ def _erode_rainfall_get_capas_cuda(
                 capas[i, j] = sed_cap_fac * aq * v_fac * slope
 
     return capas
-    
+
+
+
+_erode_rainfall_evolve_sub_cuda = None
 
 
 #-----------------------------------------------------------------------------#

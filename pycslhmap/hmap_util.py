@@ -12,9 +12,10 @@ Author: HomeOnMars
 from .hmap_util_cuda import (
     CAN_CUDA,
     _erode_rainfall_init_sub_cuda,
+    _erode_rainfall_evolve_sub_cuda,
 )
 
-from typing import Self
+from typing import Self, Callable
 
 from numba import jit, prange
 import numpy as np
@@ -240,7 +241,7 @@ def _erode_rainfall_init(
     z_min: np.float32,
     z_sea: np.float32,
     z_max: np.float32,
-    sub_func = _erode_rainfall_init_sub_default,
+    sub_func: Callable = _erode_rainfall_init_sub_default,
 ):
     """Initialization for Rainfall erosion.
 
@@ -472,8 +473,6 @@ def _erode_rainfall_evolve_sub_nb(
     ---------------------------------------------------------------------------
     """
 
-    print("Test function - Not Yet finished.")
-
     # - init -
     # remember len(soils) is npix+2 because we added edges
     N_ADJ : int = 4    # number of adjacent cells
@@ -657,8 +656,19 @@ def _erode_rainfall_evolve_sub_nb(
     return soils, aquas, ekins, sedis, capas
 
 
+_erode_rainfall_init_sub_default = (
+    # _erode_rainfall_evolve_sub_cuda if CAN_CUDA else
+    _erode_rainfall_evolve_sub_nb
+)
+
 
 _erode_rainfall_evolve = _erode_rainfall_evolve_sub_nb
+def _erode_rainfall_evolve(
+    *args,
+    sub_func: Callable = _erode_rainfall_init_sub_default,
+    **kwargs,
+):
+    return sub_func(*args, **kwargs)
 
 
 #-----------------------------------------------------------------------------#
