@@ -58,7 +58,7 @@ CUDA_TPB_P2: int = CUDA_TPB+2
 
 
 @cuda.jit(device=True)
-def device_read_sarr_with_edges(
+def _device_read_sarr_with_edges(
     in_arr, out_sarr,
     i, j, ti, tj,
 ):
@@ -69,7 +69,7 @@ def device_read_sarr_with_edges(
         So ti, tj should be within 1 <= ti <= CUDA_TPB
         ans i,  j should be within 1 <=  i <= nx_p2 - 2
     """
-    # nx_p2 = n pixel at x direction plus 2
+    # nx_p2 means n pixel at x direction plus 2
     nx_p2, ny_p2 = in_arr.shape
     out_sarr[ti, tj] = in_arr[i, j]
     # load edges
@@ -121,7 +121,7 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
 
     # - preload data -
     soil = soils[i, j]
-    device_read_sarr_with_edges(zs, sarr_zs, i, j, ti, tj)
+    _device_read_sarr_with_edges(zs, sarr_zs, i, j, ti, tj)
     cuda.syncthreads()
 
     # - do math -
