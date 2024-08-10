@@ -245,7 +245,7 @@ _erode_rainfall_init_sub_default = (
 def _erode_rainfall_init(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
-    z_config : tuple[np.float32, np.float32, np.float32, np.float32],
+    z_config: tuple[np.float32, np.float32, np.float32, np.float32],
     sub_func: Callable = _erode_rainfall_init_sub_default,
 ):
     """Initialization for Rainfall erosion.
