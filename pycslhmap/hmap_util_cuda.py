@@ -68,6 +68,8 @@ def _device_read_sarr_with_edges(
         i.e. extra row & column at both the beginning and the end.
         So ti, tj should be within 1 <= ti <= CUDA_TPB
         ans i,  j should be within 1 <=  i <= nx_p2 - 2
+
+    ---------------------------------------------------------------------------
     """
     # nx_p2 means n pixel at x direction plus 2
     nx_p2, ny_p2 = in_arr.shape
@@ -95,6 +97,8 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     """CUDA GPU-accelerated sub process.
 
     Input data type: cuda.cudadrv.devicearray.DeviceNDArray
+
+    ---------------------------------------------------------------------------
     """
     
     # - define shared data structure -
@@ -151,6 +155,7 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
         sarr_flags[0] = True
     cuda.syncthreads()
     if ti == 1 and tj == 1 and sarr_flags[0] and not is_changed[0]:
+        # reduce writing to global memory as much as possible
         is_changed[0] = True
 
 
@@ -169,6 +174,8 @@ def _erode_rainfall_init_sub_cuda(
     ...
     z_range: np.float32
         z_range == z_max - z_min
+        
+    ---------------------------------------------------------------------------
     """
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     # tpb: threads per block
@@ -228,6 +235,8 @@ def _erode_rainfall_get_capas_cuda(
         Characteristic velocity for sediment capacity calculations, in m/s.
         Used to regulate the velocity in capas calc,
         So its influence flatten out when v is high.
+        
+    ---------------------------------------------------------------------------
     """
 
     raise NotImplementedError("Cuda version of this func not yet complete.")
