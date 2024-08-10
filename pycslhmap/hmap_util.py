@@ -52,6 +52,7 @@ def _hat(
     """Get the directions of a vector as a new unit vector.
 
     If all v input are zero, will return zero vector.
+    ---------------------------------------------------------------------------
     """
     v = _norm(v_x, v_y, v_z) #(v_x**2 + v_y**2 + v_z**2)**0.5
     if v:
@@ -71,6 +72,7 @@ def _pos_to_ind_f(
     
     e.g. For a 4096**2 14336m wide map,
         it maps [-7168., 7168.] -> [-0.5, 4095.5]
+    ---------------------------------------------------------------------------
     """
     return (0.5 + pos / map_wid) * npix - 0.5
 
@@ -88,6 +90,7 @@ def _pos_to_ind_d(
         it maps [-7168., 7168.] -> [0, 4095]
 
     Warning: No safety checks.
+    ---------------------------------------------------------------------------
     """
     #return (0.5 + pos / map_wid) * npix - 0.5    # actual
     # note: int maps -0.? to 0 as well,
@@ -108,6 +111,7 @@ def _ind_to_pos(
     
     e.g. For a 4096**2 14336m wide map,
         it maps [0, 4095] -> [-7168 + 3.5/2, 7168 - 3.5/2]
+    ---------------------------------------------------------------------------
     """
     #return (-map_wid + map_wid/npix)/2. + map_wid/npix*ind
     return (-0.5 + (0.5 + ind)/npix) * map_wid
@@ -129,6 +133,7 @@ def _get_z_and_dz(
     Returns: z, dz_dx, dz_dy
     Note that dz_dx is $ \\frac{\\partial z}{\\partial x} $
         i.e. partial derivative
+    ---------------------------------------------------------------------------
     """
 
     # init
@@ -199,6 +204,8 @@ def _erode_rainfall_init_sub_nb(
     ...
     z_range: np.float32
         z_range == z_max - z_min
+
+    ---------------------------------------------------------------------------
     """
     
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
@@ -268,6 +275,8 @@ def _erode_rainfall_init(
         Constant river source. acts as a spawner.
         By default, will init any zero elements as sea levels at edges.
     ... 
+
+    ---------------------------------------------------------------------------
     """
     
     npix_x, npix_y = data.shape
@@ -347,6 +356,8 @@ def _erode_rainfall_get_capas(
         Characteristic velocity for sediment capacity calculations, in m/s.
         Used to regulate the velocity in capas calc,
         So its influence flatten out when v is high.
+        
+    ---------------------------------------------------------------------------
     """
     npix_x, npix_y = zs.shape[0]-2, zs.shape[1]-2
     pix_wid_x, pix_wid_y = pix_widxy
@@ -392,7 +403,11 @@ def _erode_rainfall_evolve_sub_nb(
     v_cap: np.float32 = np.float32(16.),
     g : np.float32 = np.float32(9.8),
 ):
+    """Numba version of the sub process for rainfall erosion evolution.
 
+    See _erode_rainfall_evolve for parameters info.
+    ---------------------------------------------------------------------------
+    """
     # - init -
     # remember len(soils) is npix+2 because we added edges
     N_ADJ : int = 4    # number of adjacent cells
