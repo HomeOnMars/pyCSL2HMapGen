@@ -339,6 +339,7 @@ def _erode_rainfall_get_capas(
     zs   : npt.NDArray[np.float32],
     aquas: npt.NDArray[np.float32],
     ekins: npt.NDArray[np.float32],
+    sedis: npt.NDArray[np.float32],
     pix_widxy: tuple[np.float32, np.float32],
     sed_cap_fac: np.float32 = np.float32(1.0),
     v_cap: np.float32 = np.float32(16.),
@@ -370,6 +371,7 @@ def _erode_rainfall_get_capas(
             if not np.isclose(aq, 0.):
                 z  = zs[i, j]
                 ek = ekins[i, j]
+                se = sedis[i, j]
                 # average velocity (regulated to 0. < slope < 1.)
                 v_avg = (6.*ek/aq)**0.5/2.
                 v_fac = np.sin(np.atan(v_avg/v_cap))
@@ -377,8 +379,8 @@ def _erode_rainfall_get_capas(
                 dz_dx = (zs[i+1, j] - zs[i-1, j]) / (pix_wid_x*2)
                 dz_dy = (zs[i, j+1] - zs[i, j-1]) / (pix_wid_y*2)
                 slope = np.sin(np.atan((dz_dx**2 + dz_dy**2)**0.5))
-                
-                capas[i, j] = sed_cap_fac * aq * v_fac * slope
+
+                capas[i, j] = sed_cap_fac * (aq-se) * v_fac * slope
 
     return capas
     
@@ -428,7 +430,7 @@ def _erode_rainfall_evolve_sub_nb(
     sedis_dnew = np.zeros_like(soils)
 
     capas = _erode_rainfall_get_capas(
-        zs, aquas, ekins, pix_widxy, sed_cap_fac, v_cap)
+        zs, aquas, ekins, sedis, pix_widxy, sed_cap_fac, v_cap)
     
     for i in range(1, npix_x+1):
         for j in range(1, npix_y+1):
@@ -787,7 +789,7 @@ def _erode_rainfall_evolve(
         )
     
     capas = _erode_rainfall_get_capas(
-            soils+aquas, aquas, ekins, pix_widxy, sed_cap_fac, v_cap)
+            soils+aquas, aquas, ekins, sedis, pix_widxy, sed_cap_fac, v_cap)
     
     return soils, aquas, ekins, sedis, capas
 
