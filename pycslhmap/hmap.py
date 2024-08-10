@@ -46,14 +46,20 @@ class HMap:
             1) 2D,
             2) postive in every pixel,
 
-    z_min : float
-        Seabed height in meters. Must be positive.
-        Defines the minimum height of self.data
-
-    z_sea : float
-        Sea level height in meters. Must be positive.
-        Defines the height of the ocean.
-        Every pixel in self.data below self.z_sea is considered in the sea.
+    z_config: tuple((z_min, z_sea, z_max, z_res))
+        z_min : np.float32
+            Seabed height in meters. Must be positive.
+            Defines the minimum height of self.data
+        z_sea : np.float32
+            Sea level height in meters. Must be positive.
+            Defines the height of the ocean.
+            Every pixel in self.data below self.z_sea is considered in the sea.
+        z_max : float
+            max height in meters storable in the data,
+            i.e. the scale of the height.
+            In CSL2 it is 4096 by default.
+        z_res : np.float32
+            Height resolution.
         
     ndim : int = 2
         [Read-only]
@@ -95,9 +101,13 @@ class HMap:
         data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float32),
         map_width : None|float|tuple[float, float] = None,
         pix_width : None|float|tuple[float, float] = 1.,
+        z_config: None|tuple[float, float, float, float] = None,
         z_min: float = 0.,
         z_sea: float = 0.,
+        z_max: float = 1024.,
+        z_res: None|float = None,
         use_data_meta: bool  = True,
+        verbose: bool = False,
     ):
         """Init.
 
@@ -106,19 +116,22 @@ class HMap:
             map_width refers to the width of the whole map;
             pix_width refers to the width of a single pixel.
             if both are provided, pix_width will be ignored.
+            
+        z_config: None|tuple((z_min, z_sea, z_max, z_res))
+            if provided, will override z_min & z_sea
 
         use_data_meta : bool
             If true and data is of type Self or HMap,
                 will copy the metadata in it
                 instead of the supplied parameters.
+        -----------------------------------------------------------------------
         """
         
         # init
         if isinstance(data, HMap):
             if use_data_meta:
                 map_width = data._map_widxy
-                z_min  = data.z_min
-                z_sea  = data.z_sea
+                z_config  = data._z_config
             data = data.data.copy()
         data = np.array(data, dtype=np.float32)
         map_width = self._get_map_wid_from_pix_wid(
@@ -130,12 +143,19 @@ class HMap:
         self.data: npt.NDArray[np.float32] = data
         # note: will normalize float into tuple of floats later
         self._map_widxy: tuple[float, float] = map_width
-        self.z_min: float = z_min
-        self.z_sea: float = z_sea
+        if z_config is None:
+            self._z_config: npt.NDArray[np.float32] = np.array(
+                [0., 0., 1024., 2.**(-13)], dtype=np.float32)
+            self.z_min = z_min
+            self.z_sea = z_sea
+            self.z_max = z_max
+            self.z_res = z_res
+        else:
+            self._z_config = np.array(z_config, dtype=np.float32, copy=True)
 
         
         # do things
-        self.normalize()
+        self.normalize(overwrite=False, verbose=verbose)
 
 
     
@@ -156,7 +176,7 @@ class HMap:
         It's 57344 for CSL2 world map, and 14336 for CSL2 playable area.
         (Because 57344 = 3.5*4*4096).
         """
-        return self._map_widxy
+        return tuple(self._map_widxy)
 
     @property
     def pix_widxy(self) -> tuple[float, float]:
@@ -166,7 +186,54 @@ class HMap:
         """
         return tuple([
             map_wid / npix
-            for map_wid, npix in zip(self.map_widxy, self.npix_xy)])
+            for map_wid, npix in zip(self._map_widxy, self.npix_xy)])
+
+    @property
+    def z_min(self) -> np.float32:
+        return self._z_config[0]
+
+    @z_min.setter
+    def z_min(self, value: np.float32):
+        self._z_config[0] = value
+
+    @property
+    def z_sea(self) -> np.float32:
+        return self._z_config[1]
+
+    @z_sea.setter
+    def z_sea(self, value: np.float32):
+        self._z_config[2] = value
+
+    @property
+    def z_max(self) -> np.float32:
+        return self._z_config[2]
+
+    @z_max.setter
+    def z_max(self, value: np.float32):
+        self._z_config[2] = value
+
+    @property
+    def z_res(self) -> np.float32:
+        return self._z_config[3]
+
+    @z_res.setter
+    def z_res(self, value: None|np.float32):
+        # Note: float32 can only hold 23bits for digits
+        # and -126 ~ 127 for exponentials
+        z_range = abs(self.z_range)
+        z_range = z_range if z_range > 2**(-126) else 2**(-126)
+        machine_precision = 2**(np.log2(self.z_range) - 23)
+        if value is None or value < machine_precision:
+            value = machine_precision
+        self._z_config[3] = value
+
+    @property
+    def z_range(self) -> np.float32:
+        return self.z_max - self.z_min
+    
+    @property
+    def z_config(self) -> npt.NDArray[np.float32]:
+        return self._z_config
         
 
 
@@ -179,6 +246,7 @@ class HMap:
         """Normalize map width from map_width and/or pix_width.
 
         Returns map_width as a tuple.
+        -----------------------------------------------------------------------
         """
         
         len_map_width : int = 0
@@ -205,23 +273,63 @@ class HMap:
                 elif len_pix_width == 0 and pix_width is not None:
                     mw *= pix_width
             map_width_new[i_mw] = mw
-        map_width = tuple(map_width_new)
+        map_width = map_width_new
         
         return map_width
 
 
     
-    def normalize(self, verbose:bool=True) -> Self:
+    def normalize(self, overwrite:bool=False, verbose:bool=True) -> Self:
         """Resetting parameters and do safety checks."""
+
+        self.z_res = self.z_res    # make sure it's a valid value
         
         try: len(self._map_widxy)
         except TypeError:
             self._map_widxy = tuple([
                 self._map_widxy for i in range(self.ndim)])
-            
+
+        nbad_pixels = np.count_nonzero(self.data < self.z_min)
+        noverflowed = np.count_nonzero(self.data > self.z_max)
+        if nbad_pixels:
+            if verbose:
+                print(
+                    f"\n**  Warning: Data have {nbad_pixels} "
+                    + f"({nbad_pixels/self.data.size*100:6.1f} %) "
+                    + f"bad pixels where data < {self.z_min = }."
+                )
+                if overwrite:
+                    print("These pixels will be replaced by minimum height.")
+        if noverflowed:
+            if verbose:
+                print(
+                    f"\n**  Warning: Data have {noverflowed} "
+                    + f"({noverflowed/self.data.size*100:6.1f} %) "
+                    + f"overflowed pixels where data > {self.z_max = }."
+                )
+                if overwrite:
+                    print(f"These pixels will be replaced by "
+                          + f"{self.z_max - self.z_res = }.")
+        if nbad_pixels or noverflowed:
+            if verbose:
+                print(self)
+            if overwrite:
+                if verbose:
+                    print("Normalizing...")
+                self.data = np.where(
+                    self.data >= self.z_max,
+                    self.z_max - self.z_res,    # overflowed
+                    np.where(
+                        self.data < self.z_min,
+                        self.z_min,      # bad pixel
+                        self.data,       # good data
+                    ),
+                )
+        
         # safety checks
         assert self.ndim  == 2
         assert self.z_sea >= self.z_min
+        assert self._z_config.size == 4
         
         return self
 
@@ -354,6 +462,7 @@ class HMap:
         z_sea: float = 128.,
         z_max: float = 4096.,
         dtype: type  = np.float32,
+        fix_bad_pix: bool = True,
         verbose: bool= True,
     ) -> Self:
         """Load height map from a png file.
@@ -391,7 +500,8 @@ class HMap:
         self._map_widxy = map_width
         self.z_min = z_min
         self.z_sea = z_sea
-        self.normalize()
+        self.z_max = z_max
+        self.normalize(overwrite=fix_bad_pix, verbose=verbose)
         
         
         if verbose:
@@ -408,21 +518,21 @@ class HMap:
         self,
         filename : str,
         bit_depth: int = 16,
-        z_max: None|float = 4096.,
+        z_max: None|float = None,
         compression: int = 9,    # maximum compression
         verbose: bool = True,
     ) -> Self:
         """Save to a png file."""
 
         if z_max is None:
-            z_max = np.max(self.data) + 1
-
-        self.normalize()
+            z_max = self.z_max
+        z_max_act = (2**bit_depth - 1) / 2**bit_depth * z_max
+        self.normalize(overwrite=False, verbose=False)
 
         # safety check
         if verbose:
             nbad_pixels = np.count_nonzero(self.data < self.z_min)
-            noverflowed = np.count_nonzero(self.data > z_max)
+            noverflowed = np.count_nonzero(self.data >= z_max)
             if nbad_pixels:
                 print(
                     f"\n**  Warning: Data have {nbad_pixels} "
@@ -438,7 +548,7 @@ class HMap:
                     + f"overflowed pixels where data > height scale "
                     + f"{z_max = }.\n"
                     + "These pixels will be replaced by maximum height "
-                    + f"{(2**bit_depth - 1) / 2**bit_depth * z_max = }"
+                    + f"(2**{bit_depth}-1)/2**{bit_depth} * z_max = {z_max_act}"
                 )
             if nbad_pixels or noverflowed:
                 print(self)
@@ -463,11 +573,11 @@ class HMap:
         
         # convert from float to uint, for saving
         ans = np.where(
-            self.data >= z_max,
+            self.data >= z_max_act,
             2**bit_depth - 1,    # overflowed
             (np.where(
                 self.data < self.z_min,
-                self.z_min,   # bad pixel
+                self.z_min,      # bad pixel
                 self.data,       # good data
             )) / (z_max / 2**bit_depth),
         ).astype(ans_dtype)
@@ -646,6 +756,7 @@ class HMap:
         interp_order : int = 3,
         interp_mode  : str = 'constant',
         z_min: None|float = None,
+        fix_bad_pix: bool = True,
         verbose: bool = True,
         **kwargs,
     ) -> Self:
@@ -709,7 +820,7 @@ class HMap:
         # do interp
         xy_coords= np.stack(
             np.meshgrid(x_coord, y_coord, indexing='ij'), axis=0)
-        ans = HMap(self.copy_meta_only())
+        ans = HMap(self.copy_meta_only(), verbose=False)
         ans.data = map_coordinates(
             self.data, xy_coords,
             order=interp_order, mode=interp_mode, cval=z_min, **kwargs)
@@ -717,7 +828,7 @@ class HMap:
             self._map_widxy[0] * nslim_npix / self.npix_xy[0],
             self._map_widxy[1] * welim_npix / self.npix_xy[1],
         )
-        ans.normalize()
+        ans.normalize(overwrite=fix_bad_pix, verbose=False)
         return ans
 
 
@@ -730,6 +841,7 @@ class HMap:
         interp_mode  : str = 'nearest',
         z_min_new: None|float = None,
         z_sea_new: None|float = None,
+        fix_bad_pix: bool = True,
         verbose: bool = True,
         **kwargs,
     ) -> Self:
@@ -806,7 +918,7 @@ class HMap:
         ans.data  = np.where(ans.data < z_min_new, z_min_new, ans.data)
         ans.z_sea = z_sea_new
         ans.z_min = z_min_new
-        ans.normalize()
+        ans.normalize(overwrite=fix_bad_pix, verbose=False)
         
         return ans
     

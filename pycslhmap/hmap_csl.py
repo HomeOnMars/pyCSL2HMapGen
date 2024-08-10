@@ -60,11 +60,6 @@ class CSL2HMap(HMap):
     
     Public:
 
-    z_max : float
-        max height in meters storable in the data,
-        i.e. the scale of the height.
-        In CSL2 it is 4096 by default.
-
     map_type : {'worldmap', 'playable'}
         type of the map.
         
@@ -101,10 +96,10 @@ class CSL2HMap(HMap):
             (NPIX_CSL2, NPIX_CSL2), dtype=np.float32),
         map_type: str = 'playable', # 'worldmap' or 'playable'
         map_name: str = '',
-        z_max : float = 4096.,
-        z_min : float = 64.,
-        z_sea : float = 128.,
+        z_config: tuple[float, float, float, float] = np.array(
+            [64., 128., 4096., 2**(np.log2(4096)-23)], dtype=np.float32),
         use_data_meta: bool  = True,
+        verbose: bool = False,
     ):
         """Init.
 
@@ -118,20 +113,17 @@ class CSL2HMap(HMap):
         
         if isinstance(data, HMap):
             if use_data_meta:
-                z_min = data.z_min
-                z_sea = data.z_sea
+                z_config = data.z_config
                 if isinstance(data, CSL2HMap):
                     map_type = data._map_type
                     map_name = data.map_name
-                    z_max = data.z_max
             data = data.data.copy()
-
+        
         
         # variables
 
         self._map_type: str   = map_type
         self.map_name : str   = map_name
-        self.z_max    : float = z_max
         
         
         # do things
@@ -141,11 +133,11 @@ class CSL2HMap(HMap):
         super().__init__(
             data,
             map_width = map_width,
-            z_min = z_min,
-            z_sea = z_sea,
+            z_config = z_config,
+            verbose = False,
         )
         
-        self.normalize()
+        self.normalize(overwrite=False, verbose=verbose)
 
 
     
@@ -171,10 +163,10 @@ class CSL2HMap(HMap):
 
 
     
-    def normalize(self, verbose:bool=True) -> Self:
+    def normalize(self, overwrite:bool=False, verbose:bool=True) -> Self:
         """Resetting parameters and do safety checks."""
 
-        super().normalize()
+        super().normalize(overwrite=overwrite, verbose=verbose)
             
         # safety checks
         assert self.ndim == 2
@@ -226,9 +218,9 @@ class CSL2HMap(HMap):
         dir_path: str = '',
         map_name: str = '',
         map_type: str = 'playable',
-        z_max : float = 4096.,
         z_min : float = 64.,
         z_sea : float = 128.,
+        z_max : float = 4096.,
         verbose: bool = True,
         **kwargs,
     ) -> Self:
@@ -259,9 +251,9 @@ class CSL2HMap(HMap):
         return self.load_png(
             filename  = filename,
             map_width = map_width,
-            z_max = z_max,
             z_min = z_min,
             z_sea = z_sea,
+            z_max = z_max,
             verbose = verbose,
             **kwargs,
         )
@@ -346,7 +338,7 @@ class CSL2HMap(HMap):
             ans,
             map_type ='playable',
             map_name = self.map_name,
-            z_max    = self.z_max,
+            z_config = self.z_config,
             use_data_meta= True,
         )
 

@@ -245,7 +245,7 @@ _erode_rainfall_init_sub_default = (
 def _erode_rainfall_init(
     data : npt.NDArray[np.float32],    # ground level
     spawners: npt.NDArray[np.float32],
-    z_config : tuple[np.float32, np.float32, np.float32],
+    z_config : tuple[np.float32, np.float32, np.float32, np.float32],
     sub_func: Callable = _erode_rainfall_init_sub_default,
 ):
     """Initialization for Rainfall erosion.
@@ -259,7 +259,7 @@ def _erode_rainfall_init(
         Constant level water spawners height (incl. ground)
         use np.zeros_like(data) as default input.
 
-    z_config: tuple(z_min, z_sea, z_max)
+    z_config: tuple((z_min, z_sea, z_max, z_res))
         Minimum height allowed / Sea level / Maximum height allowed.
         *** Warning: z_sea = 0 will disable sea level mechanics ***
         
@@ -281,7 +281,7 @@ def _erode_rainfall_init(
     
     npix_x, npix_y = data.shape
     z_config = np.asarray(z_config, dtype=np.float32)
-    z_min, z_sea, z_max = z_config
+    z_min, z_sea, z_max, z_res = z_config
 
     # - init ans arrays -
     
@@ -392,7 +392,7 @@ def _erode_rainfall_evolve_sub_nb(
     sedis: npt.NDArray[np.float32],
     edges: npt.NDArray[np.float32],
     pix_widxy: tuple[np.float32, np.float32],
-    z_config : tuple[np.float32, np.float32, np.float32],
+    z_config : tuple[np.float32, np.float32, np.float32, np.float32],
     flow_eff   : np.float32 = np.float32(0.25),
     visco_kin_aqua: np.float32 = np.float32(1e-6),
     visco_kin_soil: np.float32 = np.float32(1.0),
@@ -643,6 +643,7 @@ def _erode_rainfall_evolve_sub_nb(
     return soils, aquas, ekins, sedis
 
 
+
 _erode_rainfall_init_sub_default = (
     # _erode_rainfall_evolve_sub_cuda if CAN_CUDA else
     _erode_rainfall_evolve_sub_nb
@@ -657,9 +658,9 @@ def _erode_rainfall_evolve(
     sedis: npt.NDArray[np.float32],
     edges: npt.NDArray[np.float32],
     pix_widxy: tuple[np.float32, np.float32],
-    z_config : tuple[np.float32, np.float32, np.float32],
+    z_config : tuple[np.float32, np.float32, np.float32, np.float32],
     rain_configs: npt.NDArray[np.float32] = np.array(
-        [2.**(-4)], dtype=np.float32),
+        [2.**(-7)], dtype=np.float32),
     flow_eff   : np.float32 = np.float32(0.25),
     visco_kin_aqua: np.float32 = np.float32(1e-6),
     visco_kin_soil: np.float32 = np.float32(1.0),
@@ -703,7 +704,7 @@ def _erode_rainfall_evolve(
         data are stored in [1:-1, 1:-1].
         Repeat- need to reset min level for soils to zero!
 
-    z_config: tuple(z_min, z_sea, z_max)
+    z_config: tuple((z_min, z_sea, z_max, z_res))
         Minimum height allowed / Sea level / Maximum height allowed.
         *** Warning: z_sea = 0 will disable sea level mechanics ***
 
