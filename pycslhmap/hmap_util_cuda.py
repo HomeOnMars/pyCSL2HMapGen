@@ -12,7 +12,7 @@ Author: HomeOnMars
 
 from typing import Self
 
-from numba import jit, prange, cuda, float32
+from numba import jit, prange, cuda, float32, bool_
 import numpy as np
 from numpy import typing as npt
 
@@ -104,6 +104,9 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     #    must take integer literals instead of integer
     sarr_zs = cuda.shared.array(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=float32)
+    # flags:
+    #    0: has_changes_in_this_thread_block
+    sarr_flags = cuda.shared.array(shape=(1,), dtype=bool_)
 
     nx_p2, ny_p2 = zs.shape
 
@@ -122,6 +125,8 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     # - preload data -
     soil = soils[i, j]
     _device_read_sarr_with_edges(zs, sarr_zs, i, j, ti, tj)
+    if ti == 1 and tj == 1:
+        sarr_flags[0] = False
     cuda.syncthreads()
 
     # - do math -
@@ -143,6 +148,9 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     # - write data back -
     zs[i, j] = z_new
     if not_done:
+        sarr_flags[0] = True
+    cuda.syncthreads()
+    if ti == 1 and tj == 1 and sarr_flags[0] and not is_changed[0]:
         is_changed[0] = True
 
 
