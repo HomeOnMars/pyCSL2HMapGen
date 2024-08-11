@@ -334,6 +334,21 @@ def _erode_rainfall_init(
 #-----------------------------------------------------------------------------#
 
 
+@jit(nopython=True, fastmath=True)
+def _erode_rainfall_get_slope_dz(
+    z_mi: np.float32, z_ne1: np.float32, z_ne2: np.float32,
+    slope_facs: tuple[np.float32, np.float32],
+) -> np.float32:
+    """Return the dz used for slope calc"""
+    downhill_fac, uphill_fac = slope_facs
+    dz1 = z_mi - z_ne1
+    dz1 *= downhill_fac if dz1 > 0 else uphill_fac
+    dz2 = z_mi - z_ne2
+    dz2 *= downhill_fac if dz2 > 0 else uphill_fac
+    return max(abs(dz1), abs(dz2))
+    
+
+
 @jit(nopython=True, fastmath=True, parallel=True)
 def _erode_rainfall_get_capas(
     zs   : npt.NDArray[np.float32],
@@ -341,8 +356,9 @@ def _erode_rainfall_get_capas(
     ekins: npt.NDArray[np.float32],
     sedis: npt.NDArray[np.float32],
     pix_widxy: tuple[np.float32, np.float32],
-    sed_cap_fac: np.float32 = np.float32(1.0),
-    v_cap: np.float32 = np.float32(16.),
+    sed_cap_fac: np.float32,
+    slope_facs : tuple[np.float32, np.float32],
+    v_cap: np.float32,
 ) -> npt.NDArray[np.float32]:
     """Get sediment capacity.
 
@@ -352,7 +368,12 @@ def _erode_rainfall_get_capas(
     sed_cap_fac : float
         Sediment capacity factor of the river.
         Limits the maximum of the sediemnt capacity.
-        
+
+    slope_facs: tuple((downhill_fac, uphill_fac))
+        factor to used in the slope calculation. should be 0. < fac < 1.
+        if downhill_fac > upfill_fac, will make more gently sloped hills;
+        else, will make more cliffs
+
     v_cap: float
         Characteristic velocity for sediment capacity calculations, in m/s.
         Used to regulate the velocity in capas calc,
@@ -376,8 +397,12 @@ def _erode_rainfall_get_capas(
                 v_avg = (6.*ek/aq)**0.5/2.
                 v_fac = np.sin(np.atan(v_avg/v_cap))
                 # get slope (but regulated to 0. < slope < 1.)
-                dz_dx = (zs[i+1, j] - zs[i-1, j]) / (pix_wid_x*2)
-                dz_dy = (zs[i, j+1] - zs[i, j-1]) / (pix_wid_y*2)
+                dz_dx = _erode_rainfall_get_slope_dz(
+                    zs[i, j], zs[i+1, j], zs[i-1, j], slope_facs,
+                ) / (pix_wid_x*2)
+                dz_dy = _erode_rainfall_get_slope_dz(
+                    zs[i, j], zs[i, j+1], zs[i, j-1], slope_facs,
+                ) / (pix_wid_y*2)
                 slope = np.sin(np.atan((dz_dx**2 + dz_dy**2)**0.5))
 
                 capas[i, j] = sed_cap_fac * (aq-se) * v_fac * slope
@@ -395,15 +420,15 @@ def _erode_rainfall_evolve_sub_nb(
     edges: npt.NDArray[np.float32],
     pix_widxy: tuple[np.float32, np.float32],
     z_config : tuple[np.float32, np.float32, np.float32, np.float32],
-    flow_eff   : np.float32 = np.float32(0.25),
-    visco_kin_aqua: np.float32 = np.float32(1e-6),
-    visco_kin_soil: np.float32 = np.float32(1.0),
-    sed_cap_fac: np.float32 = np.float32(1.0),
-    erosion_eff: np.float32 = np.float32(0.125),
-    diffuse_eff: np.float32 = np.float32(0.25),
-    hole_depth : np.float32 = np.float32(2.**(-8)),
-    v_cap: np.float32 = np.float32(16.),
-    g : np.float32 = np.float32(9.8),
+    flow_eff   : np.float32,
+    visco_kin_range: tuple[np.float32, np.float32],
+    sed_cap_fac: np.float32,
+    erosion_eff: np.float32,
+    diffuse_eff: np.float32,
+    hole_depth : np.float32,
+    slope_facs : tuple[np.float32, np.float32],
+    v_cap: np.float32,
+    g : np.float32,
 ):
     """Numba version of the sub process for rainfall erosion evolution.
 
@@ -415,6 +440,7 @@ def _erode_rainfall_evolve_sub_nb(
     N_ADJ : int = 4    # number of adjacent cells
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     pix_wid_x, pix_wid_y = pix_widxy
+    visco_kin_aqua, visco_kin_soil = visco_kin_range
     # the boundary will not be changed
     edges_inds_x, edges_inds_y = np.where(edges)
     edges_n = len(edges_inds_x)
@@ -430,7 +456,7 @@ def _erode_rainfall_evolve_sub_nb(
     sedis_dnew = np.zeros_like(soils)
 
     capas = _erode_rainfall_get_capas(
-        zs, aquas, ekins, sedis, pix_widxy, sed_cap_fac, v_cap)
+        zs, aquas, ekins, sedis, pix_widxy, sed_cap_fac, slope_facs, v_cap)
     
     for i in range(1, npix_x+1):
         for j in range(1, npix_y+1):
@@ -664,12 +690,14 @@ def _erode_rainfall_evolve(
     rain_configs: npt.NDArray[np.float32] = np.array(
         [2.**(-7)], dtype=np.float32),
     flow_eff   : np.float32 = np.float32(0.25),
-    visco_kin_aqua: np.float32 = np.float32(1e-6),
-    visco_kin_soil: np.float32 = np.float32(1.0),
-    sed_cap_fac: np.float32 = np.float32(1.0),
-    erosion_eff: np.float32 = np.float32(0.125),
-    diffuse_eff: np.float32 = np.float32(0.25),
-    hole_depth : np.float32 = np.float32(2.**(-8)),
+    visco_kin_range: tuple[np.float32, np.float32] = (
+        np.float32(1e-6), np.float32(1.0)),
+    sed_cap_fac : np.float32 = np.float32(1.0),
+    erosion_eff : np.float32 = np.float32(0.125),
+    diffuse_eff : np.float32 = np.float32(0.25),
+    hole_depth  : np.float32 = np.float32(2.**(-8)),
+    slope_facs : tuple[np.float32, np.float32] = (
+        np.float32(1.0), np.float32(1.0)),
     v_cap: np.float32 = np.float32(16.),
     g : np.float32 = np.float32(9.8),
     sub_func: Callable = _erode_rainfall_init_sub_default,
@@ -720,9 +748,9 @@ def _erode_rainfall_evolve(
         Controls how well the water flows around.
         I do NOT recommend touching this.
 
-    visco_kin_aqua, visco_kin_soil: float
+    visco_kin_range: tuple((visco_kin_aqua, visco_kin_soil))
         Kinematic visocity of water and soils in SI units (m^2/s).
-        Must have visco_kin_soil >= visco_kin_aqua.
+        Must have visco_kin_aqua <= visco_kin_soil.
         It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
         
     erosion_eff: float
@@ -738,6 +766,11 @@ def _erode_rainfall_evolve(
             per step. Should be >= 0.
         If > 0., the erosion process may dig lakes.
             (but may also dig single pixel holes)
+
+    slope_facs: tuple((downhill_fac, uphill_fac))
+        factor to used in the slope calculation. should be 0. < fac < 1.
+        if downhill_fac > upfill_fac, will make more gently sloped hills;
+        else, will make more cliffs
         
     v_cap: float
         Characteristic velocity for sediment capacity calculations, in m/s.
@@ -755,12 +788,14 @@ def _erode_rainfall_evolve(
     z_config = np.asarray(z_config, dtype=np.float32)
     rain_configs = np.asarray(rain_configs, dtype=np.float32)
     flow_eff = np.float32(flow_eff)
-    visco_kin_aqua = np.float32(visco_kin_aqua)
-    visco_kin_soil = np.float32(visco_kin_soil)
+    visco_kin_range = tuple([
+        np.float32(visco_kin) for visco_kin in visco_kin_range])
     sed_cap_fac = np.float32(sed_cap_fac)
     erosion_eff = np.float32(erosion_eff)
     diffuse_eff = np.float32(diffuse_eff)
     hole_depth  = np.float32(hole_depth)
+    slope_facs = tuple([
+        np.float32(slope_fac) for slope_fac in slope_facs])
     v_cap = np.float32(v_cap)
     g = np.float32(g)
 
@@ -778,18 +813,20 @@ def _erode_rainfall_evolve(
             soils, aquas, ekins, sedis, edges,
             pix_widxy, z_config,
             flow_eff = flow_eff,
-            visco_kin_aqua = visco_kin_aqua,
-            visco_kin_soil = visco_kin_soil,
+            visco_kin_range = visco_kin_range,
             sed_cap_fac = sed_cap_fac,
             erosion_eff = erosion_eff,
             diffuse_eff = diffuse_eff,
             hole_depth  = hole_depth,
+            slope_facs  = slope_facs,
             v_cap = v_cap,
             g = g,
+            **kwargs,
         )
     
     capas = _erode_rainfall_get_capas(
-            soils+aquas, aquas, ekins, sedis, pix_widxy, sed_cap_fac, v_cap)
+        soils+aquas, aquas, ekins, sedis,
+        pix_widxy, sed_cap_fac, slope_facs, v_cap)
     
     return soils, aquas, ekins, sedis, capas
 
