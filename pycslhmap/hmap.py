@@ -202,7 +202,7 @@ class HMap:
 
     @z_sea.setter
     def z_sea(self, value: np.float32):
-        self._z_config[2] = value
+        self._z_config[1] = value
 
     @property
     def z_max(self) -> np.float32:
@@ -352,8 +352,10 @@ class HMap:
 # Height data insight
     Average height: {np.average(self.data):.2f} +/- {np.std(self.data):.2f}
     Height  range : [{np.min(self.data):.2f}, {np.max(self.data):.2f}]
-    Seabed height : {self.z_min = :.2f}
-    Sea level     : {self.z_sea = :.2f}
+    Height data storage config :
+    |  Minimum  | Sea level |  Maximum  | Resolution |
+    | {self.z_min:9.2f} | {self.z_sea:9.2f} | {self.z_max:9.2f} \
+| {self.z_res:10.7f} |
         """
 
 
