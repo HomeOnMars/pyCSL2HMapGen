@@ -440,6 +440,7 @@ def _erode_rainfall_evolve_sub_nb(
     N_ADJ : int = 4    # number of adjacent cells
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     pix_wid_x, pix_wid_y = pix_widxy
+    _, _, _, z_res = z_config
     visco_kin_aqua, visco_kin_soil = visco_kin_range
     # the boundary will not be changed
     edges_inds_x, edges_inds_y = np.where(edges)
@@ -460,7 +461,7 @@ def _erode_rainfall_evolve_sub_nb(
     
     for i in range(1, npix_x+1):
         for j in range(1, npix_y+1):
-            if aquas[i, j] > 0: # only do things if there is water
+            if aquas[i, j] >= z_res: # only do things if there is water
                 
                 # - init -
 
@@ -568,7 +569,7 @@ def _erode_rainfall_evolve_sub_nb(
                         visco_kin_aqua,    # make sure it doesn't go negative
                         # getting muddy water viscosity
                         ((aq_mi - se_mi) * visco_kin_aqua + se_mi * visco_kin_soil) / aq_mi)
-                    ek_d += visco_kin * (6*(ek-ek_d)/aq)**0.5
+                    ek_d += visco_kin * (6*(ek-ek_d)/aq_mi)**0.5
                 ek_d = min(ek_d, ek)    # make sure ekins don't go negative
                 ekins_dnew[i, j] -= ek_d
                 ek_mi = ek + ek_d    # mi: me (this pixel)
@@ -580,7 +581,7 @@ def _erode_rainfall_evolve_sub_nb(
                 aq_ne = aquas[i+1, j]
                 # aq_sl: shared water level between two pixels
                 aq_sl = min(aq_mi + soil, aq_ne + soils[i+1, j]) - max(soil, soils[i+1, j])
-                if aq_sl > 0 and not np.isclose(aq_mi, 0.) and not np.isclose(aq_ne, 0.):
+                if aq_sl >= z_res and not np.isclose(aq_mi, 0.) and not np.isclose(aq_ne, 0.):
                     # diffusion can only happen when the water are in contact
 
                     ek_ne = ekins[i+1, j]
@@ -604,7 +605,7 @@ def _erode_rainfall_evolve_sub_nb(
 
                 aq_ne, aq_mi = aquas[i, j+1], aq - wrc
                 aq_sl = min(aq_mi, aq_ne) - max(soil, soils[i, j+1])
-                if aq_sl > 0 and not np.isclose(aq_mi, 0.) and not np.isclose(aq_ne, 0.):
+                if aq_sl > z_res and not np.isclose(aq_mi, 0.) and not np.isclose(aq_ne, 0.):
                     # diffusion can only happen when the water are in contact
                     
                     ek_ne = ekins[i, j+1]
