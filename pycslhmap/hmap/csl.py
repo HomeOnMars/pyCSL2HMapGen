@@ -10,7 +10,7 @@ Author: HomeOnMars
 
 # Dependencies
 
-from .hmap import HMap
+from .base import HMap
 
 from typing import Self
 import numpy as np

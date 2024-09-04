@@ -8,6 +8,6 @@ Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
-from .hmap import HMap
-from .hmap_csl import CSL2HMap
+from .hmap import HMap, CSL2HMap
+from .hmap.util import now
 from .import_tiff import get_CSL_height_maps

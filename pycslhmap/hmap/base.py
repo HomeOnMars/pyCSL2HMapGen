@@ -9,9 +9,8 @@ Author: HomeOnMars
 
 
 # Dependencies
-from .hmap_util import (
+from .util import (
     _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
-    _erode_rainfall_init, _erode_rainfall_evolve,
 )
 
 from typing import Self
@@ -938,6 +937,8 @@ class HMap:
             See https://github.com/SebLague/Hydraulic-Erosion
         ) who in turn was inspired by Hans Theobald Beyer's Bachelor's Thesis
             'Implementation of a method for hydraulic erosion'.
+
+        However, my implementation ended up quite different from theirs.
         """
         
         raise NotImplementedError
