@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-HomeOnMars' python module for handling height maps.
+HomeOnMars' python module for importing height maps.
 
 Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
-from .hmap import HMap, CSL2HMap
-from .hmap.util import now
-from .io import get_CSL_height_maps
+from .tiff import get_CSL_height_maps
