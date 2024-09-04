@@ -18,6 +18,7 @@ from .cuda import (
 from ..hmap import HMap
 
 from typing import Self
+from copy import deepcopy
 
 from numba import jit
 import numpy as np
@@ -178,7 +179,7 @@ class ErosionState(HMap):
         self.ekins: npt.NDArray[np.float32]    # ek
         self.edges: npt.NDArray[np.float32]    # dg
 
-        self.__pars = pars
+        self.__pars = deepcopy(pars)
         super().__init__(
             hmap,
             use_data_meta = True,
