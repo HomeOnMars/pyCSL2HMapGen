@@ -10,6 +10,7 @@ Author: HomeOnMars
 
 # Dependencies
 
+from .util import VerboseType
 from .base import HMap
 
 from typing import Self
@@ -99,7 +100,7 @@ class CSL2HMap(HMap):
         z_config: tuple[float, float, float, float] = np.array(
             [64., 128., 4096., 2**(np.log2(4096)-23)], dtype=np.float32),
         use_data_meta: bool  = True,
-        verbose: bool = False,
+        verbose: VerboseType = False,
     ):
         """Init.
 
@@ -163,7 +164,9 @@ class CSL2HMap(HMap):
 
 
     
-    def normalize(self, overwrite:bool=False, verbose:bool=True) -> Self:
+    def normalize(
+        self, overwrite: bool = False, verbose: VerboseType = True,
+    ) -> Self:
         """Resetting parameters and do safety checks."""
 
         super().normalize(overwrite=overwrite, verbose=verbose)
@@ -221,7 +224,7 @@ class CSL2HMap(HMap):
         z_min : float = 64.,
         z_sea : float = 128.,
         z_max : float = 4096.,
-        verbose: bool = True,
+        verbose: VerboseType = True,
         **kwargs,
     ) -> Self:
         """Loading a Cities Skylines 2 Height Map.
@@ -267,7 +270,7 @@ class CSL2HMap(HMap):
         map_type: None|str = None,
         z_max   : None|float = None,
         compression: int = 9,    # maximum compression
-        verbose : bool = True,
+        verbose : VerboseType = True,
         **kwargs,
     ) -> Self:
         """Save to Cities Skylines 2 compatible Height Map.

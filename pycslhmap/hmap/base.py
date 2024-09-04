@@ -10,6 +10,7 @@ Author: HomeOnMars
 
 # Dependencies
 from .util import (
+    VerboseType,
     _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
 )
 
@@ -106,7 +107,7 @@ class HMap:
         z_max: float = 1024.,
         z_res: None|float = None,
         use_data_meta: bool  = True,
-        verbose: bool = False,
+        verbose: VerboseType = False,
     ):
         """Init.
 
@@ -278,7 +279,9 @@ class HMap:
 
 
     
-    def normalize(self, overwrite:bool=False, verbose:bool=True) -> Self:
+    def normalize(
+        self, overwrite: bool = False, verbose: VerboseType = True,
+    ) -> Self:
         """Resetting parameters and do safety checks."""
 
         self.z_res = self.z_res    # make sure it's a valid value
@@ -409,7 +412,7 @@ class HMap:
 
     def pos_to_ind_d(
         self, pos: tuple[float, float],
-        verbose: bool = True,
+        verbose: VerboseType = True,
     ) -> tuple[int, int]:
         """Mapping position to indexes.
         
@@ -464,7 +467,7 @@ class HMap:
         z_max: float = 4096.,
         dtype: type  = np.float32,
         fix_bad_pix: bool = True,
-        verbose: bool= True,
+        verbose: VerboseType = True,
     ) -> Self:
         """Load height map from a png file.
         
@@ -521,7 +524,7 @@ class HMap:
         bit_depth: int = 16,
         z_max: None|float = None,
         compression: int = 9,    # maximum compression
-        verbose: bool = True,
+        verbose: VerboseType = True,
     ) -> Self:
         """Save to a png file."""
 
@@ -758,7 +761,7 @@ class HMap:
         interp_mode  : str = 'constant',
         z_min: None|float = None,
         fix_bad_pix: bool = True,
-        verbose: bool = True,
+        verbose: VerboseType = True,
         **kwargs,
     ) -> Self:
         """Return a new obj with resampled HMap.
@@ -843,7 +846,7 @@ class HMap:
         z_min_new: None|float = None,
         z_sea_new: None|float = None,
         fix_bad_pix: bool = True,
-        verbose: bool = True,
+        verbose: VerboseType = True,
         **kwargs,
     ) -> Self:
         """Re-scale the HMap such that sea level stay the same.
