@@ -39,6 +39,15 @@ from numpy import typing as npt
 #-----------------------------------------------------------------------------#
 
 
+_ErosionStateDataDtype : np.dtype = np.dtype([
+    ('sedi', np.float32),    # sediment (in water) height
+    ('soil', np.float32),    # soil (solid) height
+    ('aqua', np.float32),    # water (excluding sediment) height
+    ('ekin', np.float32),    # kinetic energy of water+sediment
+])
+
+
+
 class ErosionState(HMap):
     """Erosion state snapshot.
     
@@ -55,30 +64,41 @@ class ErosionState(HMap):
     
     def __init__(
         self,
-        hmap: HMap = HMap(),
-        pars:dict[
-        str, dict[str, type|str|float|np.float32|npt.NDArray]] = DEFAULT_PARS,
+        hmap: None|HMap = None,
+        pars: dict[
+            str, dict[str, type|str|float|np.float32|npt.NDArray]
+        ] = DEFAULT_PARS,
+        do_init: bool = True,
         verbose: VerboseType = True,
     ):
-        self.soils: npt.NDArray[np.float32]    # oi
-        self.aquas: npt.NDArray[np.float32]    # aq
-        self.sedis: npt.NDArray[np.float32]    # se
-        self.ekins: npt.NDArray[np.float32]    # ek
-        self.edges: npt.NDArray[np.float32]    # dg
-
-        self.__pars = deepcopy(pars)
+        # init
+        if hmap is None:
+            hmap = HMap()
+            do_init = False
+        if do_init is None:
+            do_init = True
         super().__init__(
             hmap,
             use_data_meta = True,
             verbose = verbose,
         )
 
-        # *** Add code to save parameters here ***
         
+        # variables
 
-    def get_zs(self) -> npt.NDArray[np.float32]:
-        """Return total height."""
-        return self.soils + self.aquas + self.ekins
+        # actual values
+        self.stats: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+            self.npix_xy, dtype=_ErosionStateDataDtype)
+        # boundary conditions (will stay constant)
+        self.edges: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+            self.npix_xy, dtype=_ErosionStateDataDtype)
+        # parameters
+        self.__pars = deepcopy(pars)
+        
+        if do_init:
+            raise NotImplementedError("Erosion init func wrapper to be added")
+
+    
 
     def get_par(self, name: str) -> ParsValueType:
         """Return parameter of the name."""
