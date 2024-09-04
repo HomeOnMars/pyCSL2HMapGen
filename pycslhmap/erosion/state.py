@@ -30,10 +30,13 @@ from numpy import typing as npt
 #-----------------------------------------------------------------------------#
 
 
-ParsValueType = float|np.float32|npt.NDArray[np.float32]
+ParsValueType = (
+    float|np.float32|npt.NDArray[np.float32]|tuple[np.float32, np.float32]
+)
 
 DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
-    # Note: Do NOT edit _TYPE and _DOC_ in real-time - they will not be used.
+    # Note: Do NOT edit _TYPE / _DOC_ / etc. in real-time -
+    #    they will not be used.
     'rain_configs': {
         '_TYPE': npt.NDArray[np.float32],
         'value': np.array([2.**(-7)], dtype=np.float32),
