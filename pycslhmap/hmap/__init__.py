@@ -8,6 +8,5 @@ Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
-from .util import now
 from .base import HMap
 from .csl  import CSL2HMap

@@ -9,5 +9,5 @@ Author: HomeOnMars
 """
 
 from .hmap import HMap, CSL2HMap
-from .hmap.util import now
+from .util import now
 from .io import get_CSL_height_maps

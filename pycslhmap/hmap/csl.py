@@ -10,7 +10,7 @@ Author: HomeOnMars
 
 # Dependencies
 
-from .util import VerboseType
+from ..util import VerboseType
 from .base import HMap
 
 from typing import Self

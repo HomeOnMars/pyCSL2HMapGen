@@ -9,12 +9,12 @@ Author: HomeOnMars
 
 
 # Dependencies
-from .util import (
+from ..hmap.util import (
     _minabs, _norm, _hat,
     _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
     _get_z_and_dz,
 )
-from ._abandoned_erosion_rainfall import (
+from ._abandoned_rainfall import (
     _erode_rainfall_init_sub_nb,
     _erode_rainfall_init,
     _erode_rainfall_get_slope_dz,

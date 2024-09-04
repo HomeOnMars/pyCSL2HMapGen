@@ -9,10 +9,8 @@ Author: HomeOnMars
 
 
 # Dependencies
-from .util import (
-    VerboseType,
-    _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
-)
+from ..util import VerboseType
+from .util import _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d
 
 from typing import Self
 

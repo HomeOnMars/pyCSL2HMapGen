@@ -7,7 +7,7 @@ Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
-from .erosion_cuda import (
+from .cuda import (
     CAN_CUDA,
     _erode_rainfall_init_sub_cuda,
     _erode_rainfall_evolve_sub_cuda,

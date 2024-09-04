@@ -9,20 +9,11 @@ Author: HomeOnMars
 
 
 # Dependencies
+#from ..util import VerboseType
+
 from numba import jit
 import numpy as np
 from numpy import typing as npt
-from datetime import datetime, UTC
-now = lambda: datetime.now(UTC)
-
-
-
-#-----------------------------------------------------------------------------#
-#    Types
-#-----------------------------------------------------------------------------#
-
-
-VerboseType = bool
 
 
 
