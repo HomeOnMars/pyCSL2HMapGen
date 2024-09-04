@@ -68,7 +68,7 @@ class ErosionState(HMap):
         pars: dict[
             str, dict[str, type|str|float|np.float32|npt.NDArray]
         ] = DEFAULT_PARS,
-        do_init: bool = True,
+        do_init: None|bool = None,
         verbose: VerboseType = True,
     ):
         # init
@@ -87,10 +87,10 @@ class ErosionState(HMap):
         # variables
 
         # actual values
-        self.stats: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+        self.stats: npt.NDArray[_ErosionStateDataDtype] = np.empty(
             self.npix_xy, dtype=_ErosionStateDataDtype)
         # boundary conditions (will stay constant)
-        self.edges: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+        self.edges: npt.NDArray[_ErosionStateDataDtype] = np.empty(
             self.npix_xy, dtype=_ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
