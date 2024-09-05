@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-"""Functions for handling height maps.
+"""Utilities and odds and ends.
+
+Should be loaded before all other modules in this folder.
+
 
 Author: HomeOnMars
 -------------------------------------------------------------------------------

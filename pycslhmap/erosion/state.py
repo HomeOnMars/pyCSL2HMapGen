@@ -5,6 +5,18 @@
 
 Require Cuda. CPU version no longer supported.
 
+
+-------------------------------------------------------------------------------
+
+Inspired by Sebastian Lague's Erosion code (
+    See https://github.com/SebLague/Hydraulic-Erosion
+) who in turn was inspired by Hans Theobald Beyer's Bachelor's Thesis
+    'Implementation of a method for hydraulic erosion'.
+However, my implementation ended up very different from theirs.
+
+-------------------------------------------------------------------------------
+
+
 Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
@@ -55,12 +67,9 @@ class ErosionState(HMap):
     ---------------------------------------------------------------------------
     """
     
-    
-    
     #-------------------------------------------------------------------------#
     #    Meta: Initialize
     #-------------------------------------------------------------------------#
-
     
     def __init__(
         self,
@@ -72,11 +81,11 @@ class ErosionState(HMap):
         verbose: VerboseType = True,
     ):
         # init
+        if do_init is None:
+            do_init = hmap is not None
         if hmap is None:
             hmap = HMap()
-            do_init = False
-        if do_init is None:
-            do_init = True
+
         super().__init__(
             hmap,
             use_data_meta = True,

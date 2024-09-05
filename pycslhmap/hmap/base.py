@@ -96,7 +96,7 @@ class HMap:
     
     def __init__(
         self,
-        data : Self|npt.ArrayLike = np.zeros((256, 256), dtype=np.float32),
+        data : Self|npt.ArrayLike = np.zeros((32, 32), dtype=np.float32),
         map_width : None|float|tuple[float, float] = None,
         pix_width : None|float|tuple[float, float] = 1.,
         z_config: None|tuple[float, float, float, float] = None,
@@ -923,26 +923,6 @@ class HMap:
         ans.normalize(overwrite=fix_bad_pix, verbose=False)
         
         return ans
-    
-    
-    
-    #-------------------------------------------------------------------------#
-    #    Erosion
-    #-------------------------------------------------------------------------#
-
-
-    def erode(self, **kwargs) -> Self:
-        """Do Erosion!
-        
-        Inspired by Sebastian Lague's Erosion code (
-            See https://github.com/SebLague/Hydraulic-Erosion
-        ) who in turn was inspired by Hans Theobald Beyer's Bachelor's Thesis
-            'Implementation of a method for hydraulic erosion'.
-
-        However, my implementation ended up quite different from theirs.
-        """
-        
-        raise NotImplementedError
         
     
 
