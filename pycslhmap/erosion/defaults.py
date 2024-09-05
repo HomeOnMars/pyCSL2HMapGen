@@ -25,6 +25,12 @@ ParsValueType = (
     float|np.float32|npt.NDArray[np.float32]|tuple[np.float32, np.float32]
 )
 
+ParsType = dict[
+    str,
+    dict[str, type|str|float|np.float32|npt.NDArray]
+]
+
+
 DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     # Note: Do NOT edit _TYPE / _DOC_ / etc. in real-time -
     #    they will not be used.

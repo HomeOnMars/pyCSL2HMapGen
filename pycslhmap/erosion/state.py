@@ -29,7 +29,7 @@ from ..util import (
 )
 from .defaults import (
     DEFAULT_PARS,
-    ParsValueType,
+    ParsValueType, ParsType,
 )
 from .cuda import (
     CAN_CUDA,
@@ -37,7 +37,7 @@ from .cuda import (
 )
 from ..hmap import HMap
 
-from typing import Self
+from typing import Self, Callable
 from copy import deepcopy
 
 from numba import jit
@@ -56,6 +56,7 @@ _ErosionStateDataDtype : np.dtype = np.dtype([
     ('soil', np.float32),    # soil (solid) height
     ('aqua', np.float32),    # water (excluding sediment) height
     ('ekin', np.float32),    # kinetic energy of water+sediment
+    ('z'   , np.float32),    # total height (z = soil + sedi + aqua)
 ])
 
 
@@ -74,9 +75,7 @@ class ErosionState(HMap):
     def __init__(
         self,
         hmap: None|HMap = None,
-        pars: dict[
-            str, dict[str, type|str|float|np.float32|npt.NDArray]
-        ] = DEFAULT_PARS,
+        pars: ParsType = DEFAULT_PARS,
         do_init: None|bool = None,
         verbose: VerboseType = True,
     ):
@@ -86,6 +85,8 @@ class ErosionState(HMap):
         if hmap is None:
             hmap = HMap()
 
+        self.__initialized : bool = False
+        
         super().__init__(
             hmap,
             use_data_meta = True,
@@ -103,9 +104,15 @@ class ErosionState(HMap):
             self.npix_xy, dtype=_ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
+
+
+        # do things
         
         if do_init:
             raise NotImplementedError("Erosion init func wrapper to be added")
+
+        self.__initialized = True    # do NOT change this flag afterwards
+        self.normalize(verbose=verbose)
 
     
 
@@ -126,6 +133,28 @@ class ErosionState(HMap):
                 f"Possible parameters are: {self.__pars.keys()}"
             )
         return
+
+    @property
+    def pars(self) -> ParsType:
+        return self.__pars
+
+
+    def normalize(
+        self, overwrite: bool = False, verbose: VerboseType = True,
+    ) -> Self:
+        """Resetting and safety checks."""
+        
+        super().normalize(overwrite=overwrite, verbose=verbose)
+
+        if self.__initialized:
+            self.stats['z'] = (
+                self.stats['sedi'] + self.stats['soil'] + self.stats['aqua']
+            )
+            self.edges['z'] = (
+                self.edges['sedi'] + self.edges['soil'] + self.edges['aqua']
+            )
+
+        return self
 
 
 
