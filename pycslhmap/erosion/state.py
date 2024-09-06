@@ -312,13 +312,14 @@ class ErosionState(HMap):
         self.stats['aqua'][1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
         self.stats['sedi'] = 0.
         self.stats['ekin'] = 0. # is zero because speed is zero
+        self.stats['z'] = self.stats['soil'] + self.stats['aqua']
 
 
         runtime_t1 = now()
         if verbose:
             print(
                 f"Time: ErosionState.init() Ending: {runtime_t1}\n",
-                f"    Total used time: {runtime_t1 - runtime_t0}\n"
+                f"    Total used time: {runtime_t1 - runtime_t0}\n",
             )
             print(f"    Debug: {n_cycles} cycles used for initialization.")
 
