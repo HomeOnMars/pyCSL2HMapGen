@@ -60,6 +60,10 @@ _ErosionStateDataDtype : np.dtype = np.dtype([
 ])
 
 
+def _shape_add_two(shape: tuple[int, int]) -> tuple[int, int]:
+    return tuple([x+2 for x in shape])
+
+
 
 class ErosionState(HMap):
     """Erosion state snapshot.
@@ -85,33 +89,32 @@ class ErosionState(HMap):
         if hmap is None:
             hmap = HMap()
 
-        self.__initialized : bool = False
-        
-        super().__init__(
-            hmap,
-            use_data_meta = True,
-            verbose = verbose,
-        )
-
         
         # variables
 
+        self.__done__init: bool = False
         # actual values
-        self.stats: npt.NDArray[_ErosionStateDataDtype] = np.empty(
-            self.npix_xy, dtype=_ErosionStateDataDtype)
+        self.stats: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+            _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
         # boundary conditions (will stay constant)
-        self.edges: npt.NDArray[_ErosionStateDataDtype] = np.empty(
-            self.npix_xy, dtype=_ErosionStateDataDtype)
+        self.edges: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+            _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
 
 
         # do things
         
+        super().__init__(
+            hmap,
+            use_data_meta = True,
+            verbose = verbose,
+        )
+        
         if do_init:
             raise NotImplementedError("Erosion init func wrapper to be added")
 
-        self.__initialized = True    # do NOT change this flag afterwards
+        self.__done__init = True    # do NOT change this flag afterwards
         self.normalize(verbose=verbose)
 
     
@@ -138,6 +141,14 @@ class ErosionState(HMap):
     def pars(self) -> ParsType:
         return self.__pars
 
+    @property
+    def shape_stats(self) -> tuple[int, int]:
+        return self.stats.shape
+        
+    @property
+    def _shape_stats_calc(self) -> tuple[int, int]:
+        return _shape_add_two(self.npix_xy)
+        
 
     def normalize(
         self, overwrite: bool = False, verbose: VerboseType = True,
@@ -146,13 +157,16 @@ class ErosionState(HMap):
         
         super().normalize(overwrite=overwrite, verbose=verbose)
 
-        if self.__initialized:
-            self.stats['z'] = (
-                self.stats['sedi'] + self.stats['soil'] + self.stats['aqua']
-            )
-            self.edges['z'] = (
-                self.edges['sedi'] + self.edges['soil'] + self.edges['aqua']
-            )
+        self.stats['z'] = (
+            self.stats['sedi'] + self.stats['soil'] + self.stats['aqua']
+        )
+        self.edges['z'] = (
+            self.edges['sedi'] + self.edges['soil'] + self.edges['aqua']
+        )
+        
+        if self.__done__init:
+            # safety checks
+            pass
 
         return self
 
