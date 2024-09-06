@@ -35,6 +35,9 @@ from .cuda import (
     CAN_CUDA,
     _erode_rainfall_init_sub_cuda,
 )
+from .nbjit import (
+    _erode_rainfall_init_sub_nbjit,
+)
 from ..hmap import HMap
 
 from typing import Self, Callable
@@ -47,16 +50,29 @@ from numpy import typing as npt
 
 
 #-----------------------------------------------------------------------------#
+#    Switches
+#-----------------------------------------------------------------------------#
+
+
+_erode_rainfall_init_sub_default = (
+    _erode_rainfall_init_sub_cuda if CAN_CUDA else
+    _erode_rainfall_init_sub_nbjit
+)
+
+
+
+#-----------------------------------------------------------------------------#
 #    Classes
 #-----------------------------------------------------------------------------#
 
 
 _ErosionStateDataDtype : np.dtype = np.dtype([
-    ('sedi', np.float32),    # sediment (in water) height
-    ('soil', np.float32),    # soil (solid) height
-    ('aqua', np.float32),    # water (excluding sediment) height
-    ('ekin', np.float32),    # kinetic energy of water+sediment
-    ('z'   , np.float32),    # total height (z = soil + sedi + aqua)
+    # note: nan will be noted as -1. in below fields
+    ('sedi', np.float32),    # [positive] sediment (in water) height
+    ('soil', np.float32),    # [positive] soil (solid) height
+    ('aqua', np.float32),    # [positive] water (excluding sediment) height
+    ('ekin', np.float32),    # [positive] kinetic energy of water+sediment
+    ('z'   , np.float32),    # [positive] total height (z = soil + sedi + aqua)
 ])
 
 
@@ -112,7 +128,7 @@ class ErosionState(HMap):
         )
         
         if do_init:
-            raise NotImplementedError("Erosion init func wrapper to be added")
+            self.init(init_edges=True, verbose=verbose)
 
         self.__done__init = True    # do NOT change this flag afterwards
         self.normalize(verbose=verbose)
@@ -166,7 +182,7 @@ class ErosionState(HMap):
         
         if self.__done__init:
             # safety checks
-            pass
+            assert self.shape_stats == self._shape_stats_calc
 
         return self
 
@@ -209,6 +225,100 @@ class ErosionState(HMap):
     def __str__(self):
         return self.__repr__()
 
+
+
+    #-------------------------------------------------------------------------#
+    #    Do erosion
+    #-------------------------------------------------------------------------#
+
+
+    def init(
+        self,
+        init_edges: bool = True,
+        sub_func: Callable = _erode_rainfall_init_sub_default,
+        verbose: VerboseType = True,
+    ) -> Self:
+        """Initialization for Rainfall erosion.
+    
+        Parameters
+        ----------
+        init_edges: bool
+            whether boundary conditions (self.edges) should be initialized too.
+    
+        spawners: (npix_x, npix_y)-shaped numpy array
+            Constant level water spawners height (incl. ground)
+            use np.zeros_like(data) as default input.
+            
+        sub_func: function
+            Provide the function for the sub process.
+            Choose between _erode_rainfall_init_sub_nbjit()   (CPU)
+                and        _erode_rainfall_init_sub_cuda()    (GPU)
+    
+        Returns
+        -------
+        self
+    
+        -----------------------------------------------------------------------
+        """
+        
+        npix_x, npix_y = self.npix_xy
+        z_min, z_sea, z_max, z_res = self.z_config
+    
+        # - init -
+        data  = self.data
+        soils = self.stats['soil']
+    
+        # init soils
+        soils[1:-1, 1:-1] = data
+        soils[ 0,   1:-1] = data[ 0]
+        soils[-1,   1:-1] = data[-1]
+        soils[1:-1,    0] = data[:, 0]
+        soils[1:-1,   -1] = data[:,-1]
+        soils[ 0, 0] = min(soils[ 0, 1], soils[ 1, 0])
+        soils[-1, 0] = min(soils[-1, 1], soils[-2, 0])
+        soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
+        soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
+        self.stats['soil'] = np.where(
+            soils <= z_min,
+            0.,
+            soils - z_min,
+        )
+        soils = self.stats['soil']
+        
+        # init edges (i.e. const lvl water spawners)
+        if init_edges:
+            # could use optimization
+            # self.edges['sedi'] and self.edges['ekin']
+            #    are always 0 by default
+            self.edges[:] = 0.
+            self.edges['soil'] = self.stats['soil'].copy()
+            self.edges['soil'][1:-1, 1:-1] = -1.
+            self.edges['aqua'] = np.where(
+                self.edges['soil'] < 0.,
+                -1.,
+                np.where(
+                    self.edges['soil'] < z_sea,
+                    z_sea - self.edges['soil'],
+                    0.,
+                ),
+            )
+            self.edges['z'] = self.edges['soil'] + self.edges['aqua']
+        
+        # - fill basins -
+        # (lakes / sea / whatev)
+        zs, n_cycles = sub_func(
+            self.stats['soil'], self.edges['z'], z_range=z_max-z_min)
+
+        self.stats['aqua'] = self.edges['aqua'].copy()
+        self.stats['aqua'][1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
+        self.stats['sedi'] = 0.
+        self.stats['ekin'] = 0. # is zero because speed is zero
+
+        if verbose:
+            print(f"    Debug: {n_cycles} cycles used for initialization.")
+
+        return self
+        
 
 
 #-----------------------------------------------------------------------------#

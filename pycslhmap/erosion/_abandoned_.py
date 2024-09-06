@@ -14,14 +14,7 @@ from ..hmap.util import (
     _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
     _get_z_and_dz,
 )
-from ._abandoned_rainfall import (
-    _erode_rainfall_init_sub_nb,
-    _erode_rainfall_init,
-    _erode_rainfall_get_slope_dz,
-    _erode_rainfall_get_capas,
-    _erode_rainfall_evolve_sub_nb,
-    _erode_rainfall_evolve,
-)
+from .nbjit import _erode_rainfall_init_sub_nbjit
 
 from typing import Self
 import random
@@ -29,6 +22,103 @@ import random
 from numba import jit, prange
 import numpy as np
 from numpy import typing as npt
+
+
+
+
+#-----------------------------------------------------------------------------#
+#    Erosion: Rainfall (Abandoned codes)
+#-----------------------------------------------------------------------------#
+
+
+
+def _erode_rainfall_init(
+    data : npt.NDArray[np.float32],    # ground level
+    spawners: npt.NDArray[np.float32],
+    z_config: tuple[np.float32, np.float32, np.float32, np.float32],
+    sub_func: Callable = _erode_rainfall_init_sub_nbjit,
+):
+    """Initialization for Rainfall erosion.
+
+    Parameters
+    ----------
+    data: (npix_x, npix_y)-shaped numpy array
+        initial height.
+
+    spawners: (npix_x, npix_y)-shaped numpy array
+        Constant level water spawners height (incl. ground)
+        use np.zeros_like(data) as default input.
+
+    z_config: tuple((z_min, z_sea, z_max, z_res))
+        Minimum height allowed / Sea level / Maximum height allowed.
+        *** Warning: z_sea = 0 will disable sea level mechanics ***
+        
+    sub_func: function
+        Provide the function for the sub process.
+        Choose between _erode_rainfall_init_sub_nbjit()   (CPU)
+            and        _erode_rainfall_init_sub_cuda() (GPU)
+
+    Returns
+    -------
+    ...
+    edges: (npix_x+2, npix_y+2)-shaped numpy array
+        Constant river source. acts as a spawner.
+        By default, will init any zero elements as sea levels at edges.
+    ... 
+
+    ---------------------------------------------------------------------------
+    """
+    
+    npix_x, npix_y = data.shape
+    z_config = np.asarray(z_config, dtype=np.float32)
+    z_min, z_sea, z_max, z_res = z_config
+
+    # - init ans arrays -
+    
+    # adding an edge
+    soils = np.zeros((npix_x+2, npix_y+2), dtype=np.float32)
+    #aquas = np.zeros_like(soils)
+
+    # init soils
+    soils[1:-1, 1:-1] = data
+    soils[ 0,   1:-1] = data[ 0]
+    soils[-1,   1:-1] = data[-1]
+    soils[1:-1,    0] = data[:, 0]
+    soils[1:-1,   -1] = data[:,-1]
+    soils[ 0, 0] = min(soils[ 0, 1], soils[ 1, 0])
+    soils[-1, 0] = min(soils[-1, 1], soils[-2, 0])
+    soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
+    soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
+    soils -= z_min
+    soils = np.where(soils <= np.float32(0.), np.float32(0.), soils)
+
+    # init edges (i.e. const lvl water spawners)
+    z_edge = z_sea - z_min
+    edges = np.empty_like(soils)
+    edges[1:-1, 1:-1] = spawners
+    edges[ 0, 1:-1] = np.where(spawners[   0], spawners[   0], z_edge)
+    edges[-1, 1:-1] = np.where(spawners[  -1], spawners[  -1], z_edge)
+    edges[1:-1,  0] = np.where(spawners[:, 0], spawners[:, 0], z_edge)
+    edges[1:-1, -1] = np.where(spawners[:,-1], spawners[:,-1], z_edge)
+    edges[0, 0], edges[-1, 0] = z_edge, z_edge
+    edges[0,-1], edges[-1,-1] = z_edge, z_edge
+
+    # init aquas
+    aquas = np.where(edges > soils, edges - soils, np.float32(0.))
+    
+    # - fill basins -
+    # (lakes / sea / whatev)
+    zs, n_cycles = sub_func(soils, edges, z_range=z_max-z_min)
+    
+    # fix data
+    aquas[1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
+    ekins = np.zeros_like(soils)
+    sedis = np.zeros_like(soils) # is zero because speed is zero
+    
+    return soils, aquas, ekins, sedis, edges, n_cycles
+
+
+
 
 
 

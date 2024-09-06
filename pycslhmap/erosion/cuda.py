@@ -44,6 +44,7 @@ else:
 #    Constants
 #-----------------------------------------------------------------------------#
 
+
 # Threads per block - controls shared memory usage for GPU
 # The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
 # Example see https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
@@ -194,8 +195,8 @@ def _erode_rainfall_init_sub_cuda(
     n_cycles = 0    # debug
     # - CUDA GPU-acceleration -
     is_changed_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
-    zs_cuda = cuda.to_device(zs)
-    soils_cuda = cuda.to_device(soils)
+    zs_cuda = cuda.to_device(np.ascontiguousarray(zs))
+    soils_cuda = cuda.to_device(np.ascontiguousarray(soils))
     while is_changed_cuda[0]:
         is_changed_cuda[0] = False
         n_cycles += 1
