@@ -24,7 +24,7 @@ Author: HomeOnMars
 
 # Dependencies
 from ..util import (
-    comment_docstring,
+    now, comment_docstring,
     VerboseType,
 )
 from .defaults import (
@@ -244,10 +244,6 @@ class ErosionState(HMap):
         ----------
         init_edges: bool
             whether boundary conditions (self.edges) should be initialized too.
-    
-        spawners: (npix_x, npix_y)-shaped numpy array
-            Constant level water spawners height (incl. ground)
-            use np.zeros_like(data) as default input.
             
         sub_func: function
             Provide the function for the sub process.
@@ -260,11 +256,14 @@ class ErosionState(HMap):
     
         -----------------------------------------------------------------------
         """
-        
+
+        runtime_t0 = now()
+        if verbose:
+            print(f"Time: ErosionState.init() Starting: {runtime_t0}")
+
+        # - init -
         npix_x, npix_y = self.npix_xy
         z_min, z_sea, z_max, z_res = self.z_config
-    
-        # - init -
         data  = self.data
         soils = self.stats['soil']
     
@@ -314,7 +313,13 @@ class ErosionState(HMap):
         self.stats['sedi'] = 0.
         self.stats['ekin'] = 0. # is zero because speed is zero
 
+
+        runtime_t1 = now()
         if verbose:
+            print(
+                f"Time: ErosionState.init() Ending: {runtime_t1}\n",
+                f"    Total used time: {runtime_t1 - runtime_t0}\n"
+            )
             print(f"    Debug: {n_cycles} cycles used for initialization.")
 
         return self
