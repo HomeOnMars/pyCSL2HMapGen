@@ -96,6 +96,7 @@ class ErosionState(HMap):
         hmap: None|HMap = None,
         pars: ParsType = DEFAULT_PARS,
         do_init: None|bool = None,
+        copy : bool = False,
         verbose: VerboseType = True,
     ):
         # init
@@ -122,6 +123,7 @@ class ErosionState(HMap):
         
         super().__init__(
             hmap,
+            copy = copy,
             use_data_meta = True,
             verbose = verbose,
         )
@@ -294,7 +296,7 @@ class ErosionState(HMap):
             # self.edges['sedi'] and self.edges['ekin']
             #    are always 0 by default
             self.edges[:] = 0.
-            self.edges['soil'] = self.stats['soil'].copy()
+            self.edges['soil'] = self.stats['soil']
             self.edges['soil'][1:-1, 1:-1] = -1.
             self.edges['aqua'] = np.where(
                 self.edges['soil'] < 0.,
@@ -312,7 +314,7 @@ class ErosionState(HMap):
         zs, n_cycles = sub_func(
             self.stats['soil'], self.edges['z'], z_range=z_max-z_min)
 
-        self.stats['aqua'] = self.edges['aqua'].copy()
+        self.stats['aqua'] = self.edges['aqua']
         self.stats['aqua'][1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
         self.stats['sedi'] = 0.
         self.stats['ekin'] = 0. # is zero because speed is zero

@@ -99,15 +99,19 @@ class CSL2HMap(HMap):
         map_name: str = '',
         z_config: tuple[float, float, float, float] = np.array(
             [64., 128., 4096., 2**(np.log2(4096)-23)], dtype=np.float32),
+        copy : bool = True,
         use_data_meta: bool  = True,
         verbose: VerboseType = False,
     ):
         """Init.
 
+        ...
         use_data_meta : bool
             If true and data is of type Self or HMap,
                 will copy the metadata in it
                 instead of the supplied parameters.
+        ...
+        -----------------------------------------------------------------------
         """
 
         # init
@@ -118,7 +122,7 @@ class CSL2HMap(HMap):
                 if isinstance(data, CSL2HMap):
                     map_type = data._map_type
                     map_name = data.map_name
-            data = data.data.copy()
+            data = data.data
         
         
         # variables
@@ -135,6 +139,7 @@ class CSL2HMap(HMap):
             data,
             map_width = map_width,
             z_config = z_config,
+            copy = copy,
             verbose = False,
         )
         

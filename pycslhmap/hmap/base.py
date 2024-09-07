@@ -104,6 +104,7 @@ class HMap:
         z_sea: float = 0.,
         z_max: float = 1024.,
         z_res: None|float = None,
+        copy : bool = True,
         use_data_meta: bool  = True,
         verbose: VerboseType = False,
     ):
@@ -118,6 +119,9 @@ class HMap:
         z_config: None|tuple((z_min, z_sea, z_max, z_res))
             if provided, will override z_min & z_sea
 
+        copy: bool
+            if False, will not copy data when copying is avoidable.
+            
         use_data_meta : bool
             If true and data is of type Self or HMap,
                 will copy the metadata in it
@@ -130,8 +134,9 @@ class HMap:
             if use_data_meta:
                 map_width = data._map_widxy
                 z_config  = data._z_config
-            data = data.data.copy()
-        data = np.array(data, dtype=np.float32)
+            data = data.data
+        data = np.asarray(
+            data, dtype=np.float32, copy=(True if copy else None))
         map_width = self._get_map_wid_from_pix_wid(
             data.shape, map_width, pix_width)
                 
