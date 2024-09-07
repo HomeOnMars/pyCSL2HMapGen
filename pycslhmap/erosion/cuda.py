@@ -54,7 +54,8 @@ else:
 
 # Threads per block - controls shared memory usage for GPU
 # The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
-# Example see https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
+# Example see
+# https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
 CUDA_TPB : int = 16
 CUDA_TPB_P2: int = CUDA_TPB+2
 
@@ -103,7 +104,7 @@ def _device_read_sarr_with_edges(
 
 
 @cuda.jit(fastmath=True)
-def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
+def _erode_rainfall_init_sub_cuda_sub(zs_cuda, soils_cuda, is_changed):
     """CUDA GPU-accelerated sub process.
 
     Input data type: cuda.cudadrv.devicearray.DeviceNDArray
@@ -116,14 +117,14 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
-    sarr_zs = cuda.shared.array(
+    zs_sarr = cuda.shared.array(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=float32)
-    # flags:
+    # flags_cuda:
     #    0: has_changes_in_this_thread_block
-    sarr_flags = cuda.shared.array(shape=(1,), dtype=bool_)
+    flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # - get thread coordinates -
-    nx_p2, ny_p2 = zs.shape
+    nx_p2, ny_p2 = zs_cuda.shape
     i, j = cuda.grid(2)
     # add 1 to account for the edges in the data
     i += 1
@@ -136,10 +137,10 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     tj = cuda.threadIdx.y + 1
 
     # - preload data -
-    soil = soils[i, j]
-    _device_read_sarr_with_edges(zs, sarr_zs, i, j, ti, tj)
+    soil = soils_cuda[i, j]
+    _device_read_sarr_with_edges(zs_cuda, zs_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
-        sarr_flags[0] = False
+        flags_sarr[0] = False
     cuda.syncthreads()
 
     # - do math -
@@ -147,23 +148,23 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     for ki in range(cuda.blockDim.x + cuda.blockDim.y):
         # level the lake height within the block
         z_new = min(
-            sarr_zs[ti-1, tj],
-            sarr_zs[ti+1, tj],
-            sarr_zs[ti, tj-1],
-            sarr_zs[ti, tj+1],
+            zs_sarr[ti-1, tj],
+            zs_sarr[ti+1, tj],
+            zs_sarr[ti, tj-1],
+            zs_sarr[ti, tj+1],
         )
         z_new = max(z_new, soil)
-        if z_new < sarr_zs[ti, tj]:
+        if z_new < zs_sarr[ti, tj]:
             not_done = True
-            sarr_zs[ti, tj] = z_new
+            zs_sarr[ti, tj] = z_new
         cuda.syncthreads()
     
     # - write data back -
-    zs[i, j] = z_new
+    zs_cuda[i, j] = z_new
     if not_done:
-        sarr_flags[0] = True
+        flags_sarr[0] = True
     cuda.syncthreads()
-    if ti == 1 and tj == 1 and sarr_flags[0] and not is_changed[0]:
+    if ti == 1 and tj == 1 and flags_sarr[0] and not is_changed[0]:
         # reduce writing to global memory as much as possible
         is_changed[0] = True
 
@@ -227,13 +228,13 @@ def _erode_rainfall_init_sub_cuda(
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
-    stats, edges, flags,
+    stats_cuda, edges_cuda, flags_cuda,
 ):
     """Evolving 1 step.
     
-    flags:
+    flags_cuda:
         0: Completed without error?
-        
+    ---------------------------------------------------------------------------
     """
     
     # - define shared data structure -
@@ -241,14 +242,14 @@ def _erode_rainfall_evolve_cuda_sub(
     # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
-    sarr_stats = cuda.shared.array(
+    stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
-    sarr_edges = cuda.shared.array(
+    edges_sarr = cuda.shared.array(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
-    sarr_flags = cuda.shared.array(shape=(1,), dtype=bool_)
+    flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # - get thread coordinates -
-    nx_p2, ny_p2 = stats.shape
+    nx_p2, ny_p2 = stats_cuda.shape
     i, j = cuda.grid(2)
     # add 1 to account for the edges in the data
     i += 1; j += 1
@@ -260,17 +261,20 @@ def _erode_rainfall_evolve_cuda_sub(
     tj = cuda.threadIdx.y + 1
 
     # - preload data -
-    _device_read_sarr_with_edges(stats, sarr_stats, i, j, ti, tj)
-    _device_read_sarr_with_edges(edges, sarr_edges, i, j, ti, tj)
+    _device_read_sarr_with_edges(stats_cuda, stats_sarr, i, j, ti, tj)
+    _device_read_sarr_with_edges(edges_cuda, edges_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
-        sarr_flags[0] = False
+        flags_sarr[0] = False
+    stat = stats_sarr[ti, tj]
+    edge = edges_sarr[ti, tj]
     cuda.syncthreads()
 
 
     
     # *** Add code here! ***
-    pass
-    
+
+    # - write data back -
+    stats_cuda[i, j] = stat
     
     
 
@@ -286,6 +290,7 @@ def _erode_rainfall_evolve_cuda(
     """Do rainfall erosion- evolve through steps.
 
     'kwargs' are not used.
+    ---------------------------------------------------------------------------
     """
 
     # - init cuda -
@@ -300,7 +305,7 @@ def _erode_rainfall_evolve_cuda(
 
     stats_cuda = cuda.to_device(stats)
     edges_cuda = cuda.to_device(edges)
-    # for flags def, see _erode_rainfall_evolve_cuda_sub doc string.
+    # for flags_cuda def, see _erode_rainfall_evolve_cuda_sub doc string.
     flags_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
 
     # - run -
@@ -312,8 +317,7 @@ def _erode_rainfall_evolve_cuda(
     
     # - return -
     stats = stats_cuda.copy_to_host()
-    raise NotImplementedError(
-        "*** Cuda version of this func not yet complete. ***")
+    print("WARNING: *** Cuda version of this func not yet complete. ***")
     return stats
 
 
