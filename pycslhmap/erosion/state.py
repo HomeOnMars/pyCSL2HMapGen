@@ -24,7 +24,7 @@ Author: HomeOnMars
 
 # Dependencies
 from ..util import (
-    now, comment_docstring, not_implemented_func,
+    now, comment_docstring, _not_implemented_func,
     VerboseType,
 )
 from .defaults import (
@@ -63,7 +63,7 @@ _erode_rainfall_init_sub_default = (
 
 _erode_rainfall_evolve_default = (
     _erode_rainfall_evolve_cuda if CAN_CUDA else
-    not_implemented_func
+    _not_implemented_func
 )
 
 

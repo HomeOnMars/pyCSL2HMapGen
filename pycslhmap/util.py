@@ -64,7 +64,7 @@ def comment_docstring(docstring: str, leading_txt: str = '# '):
 
 
 
-def not_implemented_func(*args, **kwargs):
+def _not_implemented_func(*args, **kwargs):
     """A placeholder function without implementation."""
     raise NotImplementedError
 
