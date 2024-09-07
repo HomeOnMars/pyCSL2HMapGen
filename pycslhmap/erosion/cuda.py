@@ -14,7 +14,7 @@ from ..util import (
     VerboseType,
 )
 from .defaults import (
-    ErosionStateDataType,
+    _ErosionStateDataDtype, ErosionStateDataType,
 )
 
 from typing import Self
@@ -122,9 +122,8 @@ def _erode_rainfall_init_sub_cuda_sub(zs, soils, is_changed):
     #    0: has_changes_in_this_thread_block
     sarr_flags = cuda.shared.array(shape=(1,), dtype=bool_)
 
-    nx_p2, ny_p2 = zs.shape
-
     # - get thread coordinates -
+    nx_p2, ny_p2 = zs.shape
     i, j = cuda.grid(2)
     # add 1 to account for the edges in the data
     i += 1
@@ -233,9 +232,42 @@ def _erode_rainfall_evolve_cuda_sub(
     """Evolving 1 step.
     
     flags:
-        [0]: Completed without error?
+        0: Completed without error?
         
     """
+    
+    # - define shared data structure -
+    # (shared by the threads in the same block)
+    # Note: the 4 corners will be undefined.
+    # Note: the shared array 'shape' arg
+    #    must take integer literals instead of integer
+    sarr_stats = cuda.shared.array(
+        shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
+    sarr_edges = cuda.shared.array(
+        shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
+    sarr_flags = cuda.shared.array(shape=(1,), dtype=bool_)
+
+    # - get thread coordinates -
+    nx_p2, ny_p2 = stats.shape
+    i, j = cuda.grid(2)
+    # add 1 to account for the edges in the data
+    i += 1; j += 1
+    if i + 1 >= nx_p2 or j + 1 >= ny_p2:
+        # do nothing if out of bound
+        return
+    # add 1 to account for the edges in the data
+    ti = cuda.threadIdx.x + 1
+    tj = cuda.threadIdx.y + 1
+
+    # - preload data -
+    _device_read_sarr_with_edges(stats, sarr_stats, i, j, ti, tj)
+    _device_read_sarr_with_edges(edges, sarr_edges, i, j, ti, tj)
+    if ti == 1 and tj == 1:
+        sarr_flags[0] = False
+    cuda.syncthreads()
+
+
+    
     # *** Add code here! ***
     pass
     
