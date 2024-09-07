@@ -77,6 +77,8 @@ def _device_read_sarr_with_edges(
         So ti, tj should be within 1 <= ti <= CUDA_TPB
         ans i,  j should be within 1 <=  i <= nx_p2 - 2
 
+    WARNING: the 4 corners will not be loaded.
+    
     ---------------------------------------------------------------------------
     """
     # nx_p2 means n pixel at x direction plus 2
@@ -185,6 +187,8 @@ def _erode_rainfall_init_sub_cuda(
         
     ---------------------------------------------------------------------------
     """
+
+    # - init cuda -
     npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
     # tpb: threads per block
     cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
@@ -211,6 +215,7 @@ def _erode_rainfall_init_sub_cuda(
                 zs_cuda, soils_cuda, is_changed_cuda)
         cuda.synchronize()
 
+    # - return -
     zs = zs_cuda.copy_to_host()
     return zs, n_cycles
 
@@ -221,19 +226,69 @@ def _erode_rainfall_init_sub_cuda(
 #-----------------------------------------------------------------------------#
 
 
+@cuda.jit(fastmath=True)
+def _erode_rainfall_evolve_cuda_sub(
+    stats, edges, flags,
+):
+    """Evolving 1 step.
+    
+    flags:
+        [0]: Completed without error?
+        
+    """
+    # *** Add code here! ***
+    pass
+    
+    
+    
 
 def _erode_rainfall_evolve_cuda(
     n_step: int,
     stats : ErosionStateDataType,
     edges : ErosionStateDataType,
+    npix_xy: tuple[int, int],
     # ...
     verbose: VerboseType = True,
     **kwargs,
 ) -> ErosionStateDataType:
     """Do rainfall erosion- evolve through steps.
+
+    'kwargs' are not used.
     """
-    raise NotImplementedError("Cuda version of this func not yet complete.")
+
+    # - init cuda -
+    npix_x, npix_y = npix_xy
+    # tpb: threads per block
+    cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
+    # bpg: blocks per grid
+    cuda_bpg_shape = (
+        (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
+        (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
+    )
+
+    stats_cuda = cuda.to_device(stats)
+    edges_cuda = cuda.to_device(edges)
+    # for flags def, see _erode_rainfall_evolve_cuda_sub doc string.
+    flags_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
+
+    # - run -
+    for s in range(n_step):
+        _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
+            stats_cuda, edges_cuda, flags_cuda,
+        )
+        cuda.synchronize()
+    
+    # - return -
+    stats = stats_cuda.copy_to_host()
+    raise NotImplementedError(
+        "*** Cuda version of this func not yet complete. ***")
     return stats
+
+
+
+#-----------------------------------------------------------------------------#
+#    Erosion: Rainfall: drafts
+#-----------------------------------------------------------------------------#
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
