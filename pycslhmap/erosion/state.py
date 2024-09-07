@@ -24,16 +24,18 @@ Author: HomeOnMars
 
 # Dependencies
 from ..util import (
-    now, comment_docstring,
+    now, comment_docstring, not_implemented_func,
     VerboseType,
 )
 from .defaults import (
     DEFAULT_PARS,
+    _ErosionStateDataDtype, ErosionStateDataType,
     ParsValueType, ParsType,
 )
 from .cuda import (
     CAN_CUDA,
     _erode_rainfall_init_sub_cuda,
+    _erode_rainfall_evolve_cuda,
 )
 from .nbjit import (
     _erode_rainfall_init_sub_nbjit,
@@ -59,21 +61,16 @@ _erode_rainfall_init_sub_default = (
     _erode_rainfall_init_sub_nbjit
 )
 
+_erode_rainfall_evolve_default = (
+    _erode_rainfall_evolve_cuda if CAN_CUDA else
+    not_implemented_func
+)
+
 
 
 #-----------------------------------------------------------------------------#
 #    Classes
 #-----------------------------------------------------------------------------#
-
-
-_ErosionStateDataDtype : np.dtype = np.dtype([
-    # note: nan will be noted as -1. in below fields
-    ('sedi', np.float32),    # [positive] sediment (in water) height
-    ('soil', np.float32),    # [positive] soil (solid) height
-    ('aqua', np.float32),    # [positive] water (excluding sediment) height
-    ('ekin', np.float32),    # [positive] kinetic energy of water+sediment
-    ('z'   , np.float32),    # [positive] total height (z = soil + sedi + aqua)
-])
 
 
 def _shape_add_two(shape: tuple[int, int]) -> tuple[int, int]:
@@ -83,6 +80,8 @@ def _shape_add_two(shape: tuple[int, int]) -> tuple[int, int]:
 
 class ErosionState(HMap):
     """Erosion state snapshot.
+
+    Rainfall erosion.
     
     Contains all informations necessary for resuming erosion operation.
     ---------------------------------------------------------------------------
@@ -110,10 +109,10 @@ class ErosionState(HMap):
 
         self.__done__init: bool = False
         # actual values
-        self.stats: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+        self.stats: ErosionStateDataType = np.zeros(
             _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
         # boundary conditions (will stay constant)
-        self.edges: npt.NDArray[_ErosionStateDataDtype] = np.zeros(
+        self.edges: ErosionStateDataType = np.zeros(
             _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
@@ -318,13 +317,27 @@ class ErosionState(HMap):
         runtime_t1 = now()
         if verbose:
             print(
-                f"Time: ErosionState.init() Ending: {runtime_t1}\n",
+                f"Time: ErosionState.init() Ending: {runtime_t1}\n" +
                 f"    Total used time: {runtime_t1 - runtime_t0}\n",
             )
             print(f"    Debug: {n_cycles} cycles used for initialization.")
 
         return self
+
+
+
+    def evolve(
+        self,
+        n_step: int = 4,
+        sub_func: Callable = _erode_rainfall_evolve_default,
+        verbose: VerboseType = True,
+    ) -> Self:
+        """Wrapper func for rainfall erosion.
         
+        Parameters used see self.pars
+        Use self.set_par() to change them.
+        """
+        raise NotImplementedError
 
 
 #-----------------------------------------------------------------------------#

@@ -527,6 +527,8 @@ def _erode_rainfall_evolve(
     ---------------------------------------------------------------------------
     """
 
+    raise NotImplementedError('This CPU version no longer supported.')
+
     # - type cast -
     z_config = np.asarray(z_config, dtype=np.float32)
     rain_configs = np.asarray(rain_configs, dtype=np.float32)

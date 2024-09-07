@@ -17,9 +17,19 @@ from numpy import typing as npt
 
 
 #-----------------------------------------------------------------------------#
-#    Constants
+#    Constants and types
 #-----------------------------------------------------------------------------#
 
+
+_ErosionStateDataDtype : np.dtype = np.dtype([
+    # note: nan will be noted as -1. in below fields
+    ('sedi', np.float32),    # [positive] sediment (in water) height
+    ('soil', np.float32),    # [positive] soil (solid) height
+    ('aqua', np.float32),    # [positive] water (excluding sediment) height
+    ('ekin', np.float32),    # [positive] kinetic energy of water+sediment
+    ('z'   , np.float32),    # [positive] total height (z = soil + sedi + aqua)
+])
+ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
 
 ParsValueType = (
     float|np.float32|npt.NDArray[np.float32]|tuple[np.float32, np.float32]

@@ -9,6 +9,13 @@ Author: HomeOnMars
 
 
 # Dependencies
+from ..util import (
+    now,
+    VerboseType,
+)
+from .defaults import (
+    ErosionStateDataType,
+)
 
 from typing import Self
 
@@ -212,6 +219,20 @@ def _erode_rainfall_init_sub_cuda(
 #-----------------------------------------------------------------------------#
 #    Erosion: Rainfall: Evolve
 #-----------------------------------------------------------------------------#
+
+
+
+def _erode_rainfall_evolve_cuda(
+    n_step: int,
+    stats : ErosionStateDataType,
+    edges : ErosionStateDataType,
+    # ...
+    verbose: VerboseType = True,
+) -> ErosionStateDataType:
+    """Do rainfall erosion- evolve through steps.
+    """
+    raise NotImplementedError("Cuda version of this func not yet complete.")
+    return stats
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
