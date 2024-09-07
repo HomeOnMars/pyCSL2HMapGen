@@ -34,7 +34,7 @@ def comment_docstring(docstring: str, leading_txt: str = '# '):
     """Trim and add leading_txt before each line of the doc string."""
 
     # Modified from the example doc string trimming function
-    #    from https://peps.python.org/pep-0257/
+    #    from https://peps.python.org/pep-0257/    (public domain)
     
     INDENT_MAX_SIZE : int = 255
     

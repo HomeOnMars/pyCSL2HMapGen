@@ -269,7 +269,7 @@ def _erode_rainfall_evolve_cuda_sub(
     edge = edges_sarr[ti, tj]
     cuda.syncthreads()
 
-
+    # - move water -
     
     # *** Add code here! ***
 
