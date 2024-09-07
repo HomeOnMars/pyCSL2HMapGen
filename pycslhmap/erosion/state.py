@@ -157,6 +157,10 @@ class ErosionState(HMap):
         return self.__pars
 
     @property
+    def _pars_kwargs(self) -> dict[str, ParsValueType]:
+        return {k: v['value'] for k, v in self.__pars.items()}
+
+    @property
     def shape_stats(self) -> tuple[int, int]:
         return self.stats.shape
         
@@ -256,6 +260,7 @@ class ErosionState(HMap):
         -----------------------------------------------------------------------
         """
 
+        # - time it -
         runtime_t0 = now()
         if verbose:
             print(f"Time: ErosionState.init() Starting: {runtime_t0}")
@@ -313,7 +318,7 @@ class ErosionState(HMap):
         self.stats['ekin'] = 0. # is zero because speed is zero
         self.stats['z'] = self.stats['soil'] + self.stats['aqua']
 
-
+        # - time it -
         runtime_t1 = now()
         if verbose:
             print(
@@ -337,7 +342,26 @@ class ErosionState(HMap):
         Parameters used see self.pars
         Use self.set_par() to change them.
         """
-        raise NotImplementedError
+        
+        # - time it -
+        runtime_t0 = now()
+        if verbose:
+            print(f"Time: ErosionState.evolve() Starting: {runtime_t0}")
+        
+        # - run -
+        self.stats = sub_func(
+            n_step, self.stats, self.edges, verbose=verbose,
+            **self._pars_kwargs)
+
+        # - time it -
+        runtime_t1 = now()
+        if verbose:
+            print(
+                f"Time: ErosionState.evolve() Ending: {runtime_t1}\n" +
+                f"    Total used time: {runtime_t1 - runtime_t0}\n",
+            )
+        
+        return self
 
 
 #-----------------------------------------------------------------------------#

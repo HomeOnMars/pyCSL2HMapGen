@@ -10,7 +10,7 @@ Author: HomeOnMars
 
 # Dependencies
 from ..util import (
-    now,
+    #now,
     VerboseType,
 )
 from .defaults import (
@@ -228,6 +228,7 @@ def _erode_rainfall_evolve_cuda(
     edges : ErosionStateDataType,
     # ...
     verbose: VerboseType = True,
+    **kwargs,
 ) -> ErosionStateDataType:
     """Do rainfall erosion- evolve through steps.
     """
