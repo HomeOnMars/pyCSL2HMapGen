@@ -22,8 +22,6 @@ import matplotlib as mpl
 
 # constants
 NPIX_CSL2   : int = 4096
-NPIX_4_CSL2 : int = int(NPIX_CSL2/4)
-assert NPIX_4_CSL2 * 4 == NPIX_CSL2
 
 
 

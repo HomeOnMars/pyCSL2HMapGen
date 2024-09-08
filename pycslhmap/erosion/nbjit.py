@@ -10,7 +10,6 @@ Author: HomeOnMars
 from .cuda import (
     CAN_CUDA,
     _erode_rainfall_init_sub_cuda,
-    _erode_rainfall_evolve_sub_cuda,
 )
 
 from typing import Self, Callable

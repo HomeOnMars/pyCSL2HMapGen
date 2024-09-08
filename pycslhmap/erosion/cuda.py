@@ -158,8 +158,7 @@ def _erode_rainfall_init_sub_cuda_sub(zs_cuda, soils_cuda, is_changed):
     nx_p2, ny_p2 = zs_cuda.shape
     i, j = cuda.grid(2)
     # add 1 to account for the edges in the data
-    i += 1
-    j += 1
+    i += 1; j += 1
     if i + 1 >= nx_p2 or j + 1 >= ny_p2:
         # do nothing if out of bound
         return
@@ -446,9 +445,6 @@ def _erode_rainfall_get_capas_cuda(
 
     return capas
 
-
-
-_erode_rainfall_evolve_sub_cuda = None
 
 
 #-----------------------------------------------------------------------------#
