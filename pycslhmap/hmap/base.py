@@ -225,7 +225,7 @@ class HMap:
         # and -126 ~ 127 for exponentials
         z_range = abs(self.z_range)
         z_range = z_range if z_range > 2**(-126) else 2**(-126)
-        machine_precision = 2**(np.log2(self.z_range) - 23)
+        machine_precision = 2**(np.ceil(np.log2(self.z_range)) - 23)
         if value is None or value < machine_precision:
             value = machine_precision
         self._z_config[3] = value
