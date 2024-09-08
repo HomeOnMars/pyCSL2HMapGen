@@ -59,6 +59,7 @@ else:
 CUDA_TPB : int = 16
 CUDA_TPB_P2: int = CUDA_TPB+2
 
+_STAT_DELTA_ZERO : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
 
 
 #-----------------------------------------------------------------------------#
@@ -256,8 +257,6 @@ def _erode_rainfall_init_sub_cuda(
 #-----------------------------------------------------------------------------#
 
 
-_STAT_DELTA_ZERO = np.zeros(4, dtype=_ErosionStateDataDtype)
-
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
     stats_cuda, edges_cuda, flags_cuda,
@@ -284,8 +283,9 @@ def _erode_rainfall_evolve_cuda_sub(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
+    # 5 elems: 0:origin, 1:pp, 2:pm, 3:mp, 4:mm
     stats_delta_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_P2, CUDA_TPB_P2, 4), dtype=_ErosionStateDataDtype)
+        shape=(CUDA_TPB_P2, CUDA_TPB_P2, 5), dtype=_ErosionStateDataDtype)
     stat_delta_zero_cuda = cuda.const.array_like(_STAT_DELTA_ZERO)
     
     # - get thread coordinates -
@@ -307,9 +307,9 @@ def _erode_rainfall_evolve_cuda_sub(
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     # init shared temp
-    for k in range(4):
+    for k in range(stats_delta_sarr.shape[-1]):
         _device_init_sarr_with_edges(
-            stat_delta_zero_cuda[k], stats_delta_sarr[:, :, k],
+            stat_delta_zero_cuda[0], stats_delta_sarr[:, :, k],
             nx_p2, ny_p2, i, j, ti, tj)
     # load local
     stat = stats_sarr[ti, tj]
@@ -322,7 +322,7 @@ def _erode_rainfall_evolve_cuda_sub(
     if stat['aqua'] < z_res:
         # water all evaporated.
         stat['aqua'] = 0
-        stat['soil'] ++ stat['sedi']
+        stat['soil'] += stat['sedi']
         stat['sedi'] = 0
         stat['ekin'] = 0
     # *** add more sophisticated non-uniform rain code here! ***
