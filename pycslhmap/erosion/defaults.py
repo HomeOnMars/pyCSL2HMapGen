@@ -44,14 +44,23 @@ ParsType = dict[
 DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     # Note: Do NOT edit _TYPE / _DOC_ / etc. in real-time -
     #    they will not be used.
+    'evapor_rate': {
+        '_TYPE': np.float32,
+        'value': np.float32(-2.**(-6)),
+        '_DOC_': """Evaporation rate per step.
+        .
+            float32 with abs(evapor_rate) >= z_res or == 0
+            If negative: will add water per step instead of taking them away,
+                i.e. assuming uniform raining.
+        .""",
+    },
     'rain_configs': {
         '_TYPE': npt.NDArray[np.float32],
-        'value': np.array([2.**(-7)], dtype=np.float32),
-        '_DOC_': """Kinematic visocity of water and soils in SI units (m^2/s).
+        'value': np.array([2.**(-6)], dtype=np.float32),
+        '_DOC_': """Rain configuration.
         .
-            tuple((visco_kin_aqua, visco_kin_soil))
-            Must have visco_kin_aqua <= visco_kin_soil.
-            It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
+            ***type***
+            ***Add doc here***
         .""",
     },
     'flow_eff': {

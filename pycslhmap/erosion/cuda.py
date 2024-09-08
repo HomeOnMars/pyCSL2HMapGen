@@ -229,11 +229,15 @@ def _erode_rainfall_init_sub_cuda(
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
     stats_cuda, edges_cuda, flags_cuda,
+    z_max, z_res,
+    evapor_rate,
 ):
     """Evolving 1 step.
     
     flags_cuda:
         0: Completed without error?
+    z_max:
+        z_min is assumed to be zero.
     ---------------------------------------------------------------------------
     """
     
@@ -269,11 +273,21 @@ def _erode_rainfall_evolve_cuda_sub(
     edge = edges_sarr[ti, tj]
     cuda.syncthreads()
 
+    # - rain -
+    stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
+    if stat['aqua'] < z_res:
+        # water all evaporated.
+        stat['aqua'] = 0
+        stat['soil'] ++ stat['sedi']
+        stat['sedi'] = 0
+        stat['ekin'] = 0
+    
     # - move water -
     
     # *** Add code here! ***
 
     # - write data back -
+    stat['z'] = stat['soil'] + stat['sedi'] + stat['aqua']
     stats_cuda[i, j] = stat
     
     
@@ -283,6 +297,9 @@ def _erode_rainfall_evolve_cuda(
     stats : ErosionStateDataType,
     edges : ErosionStateDataType,
     npix_xy: tuple[int, int],
+    z_max: np.float32,
+    z_res: np.float32,
+    evapor_rate: np.float32,
     # ...
     verbose: VerboseType = True,
     **kwargs,
@@ -290,6 +307,9 @@ def _erode_rainfall_evolve_cuda(
     """Do rainfall erosion- evolve through steps.
 
     'kwargs' are not used.
+
+    z_res:
+        must > 0.
     ---------------------------------------------------------------------------
     """
 
@@ -312,6 +332,8 @@ def _erode_rainfall_evolve_cuda(
     for s in range(n_step):
         _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
             stats_cuda, edges_cuda, flags_cuda,
+            z_max, z_res,
+            evapor_rate,
         )
         cuda.synchronize()
     
