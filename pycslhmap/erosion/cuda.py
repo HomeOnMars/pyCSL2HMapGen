@@ -97,6 +97,36 @@ def _device_read_sarr_with_edges(
     return
 
 
+@cuda.jit(device=True)
+def _device_init_sarr_with_edges(
+    init_value, out_sarr, nx_p2, ny_p2,
+    i, j, ti, tj,
+):
+    """Read data from global memory into shared array.
+
+    Assuming data has an 'edge',
+        i.e. extra row & column at both the beginning and the end.
+        So ti, tj should be within 1 <= ti <= CUDA_TPB
+        ans i,  j should be within 1 <=  i <= nx_p2 - 2
+
+    nx_p2 means n pixel at x direction plus 2
+    WARNING: the 4 corners will not be loaded.
+    
+    ---------------------------------------------------------------------------
+    """
+    out_sarr[ti, tj] = init_value
+    # load edges
+    if ti == 1:
+        out_sarr[ti-1, tj] = init_value
+    if ti == CUDA_TPB or i+2 == nx_p2:
+        out_sarr[ti+1, tj] = init_value
+    if tj == 1:
+        out_sarr[ti, tj-1] = init_value
+    if tj == CUDA_TPB or j+2 == ny_p2:
+        out_sarr[ti, tj+1] = init_value
+    return
+
+
 
 #-----------------------------------------------------------------------------#
 #    Erosion: Rainfall: Init
@@ -226,6 +256,8 @@ def _erode_rainfall_init_sub_cuda(
 #-----------------------------------------------------------------------------#
 
 
+_STAT_DELTA_ZERO = np.zeros(4, dtype=_ErosionStateDataDtype)
+
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
     stats_cuda, edges_cuda, flags_cuda,
@@ -252,6 +284,10 @@ def _erode_rainfall_evolve_cuda_sub(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
+    stats_delta_sarr = cuda.shared.array(
+        shape=(CUDA_TPB_P2, CUDA_TPB_P2, 4), dtype=_ErosionStateDataDtype)
+    stat_delta_zero_cuda = cuda.const.array_like(_STAT_DELTA_ZERO)
+    
     # - get thread coordinates -
     nx_p2, ny_p2 = stats_cuda.shape
     i, j = cuda.grid(2)
@@ -265,15 +301,23 @@ def _erode_rainfall_evolve_cuda_sub(
     tj = cuda.threadIdx.y + 1
 
     # - preload data -
+    # load shared
     _device_read_sarr_with_edges(stats_cuda, stats_sarr, i, j, ti, tj)
     _device_read_sarr_with_edges(edges_cuda, edges_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
+    # init shared temp
+    for k in range(4):
+        _device_init_sarr_with_edges(
+            stat_delta_zero_cuda[k], stats_delta_sarr[:, :, k],
+            nx_p2, ny_p2, i, j, ti, tj)
+    # load local
     stat = stats_sarr[ti, tj]
     edge = edges_sarr[ti, tj]
     cuda.syncthreads()
 
-    # - rain -
+    # - rain & evaporate -
+    # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
     if stat['aqua'] < z_res:
         # water all evaporated.
@@ -281,8 +325,10 @@ def _erode_rainfall_evolve_cuda_sub(
         stat['soil'] ++ stat['sedi']
         stat['sedi'] = 0
         stat['ekin'] = 0
+    # *** add more sophisticated non-uniform rain code here! ***
     
     # - move water -
+    
     
     # *** Add code here! ***
 
