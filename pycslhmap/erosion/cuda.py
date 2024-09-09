@@ -83,7 +83,20 @@ _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
 #-----------------------------------------------------------------------------#
 
 
-@cuda.jit(device=True)
+@cuda.jit(device=True, fastmath=True)
+def _device_get_coord() -> tuple[int, int, int, int]:
+    # - get thread coordinates -
+    i, j = cuda.grid(2)
+    # add 1 to account for the edges in the data
+    i += 1; j += 1
+    # add 1 to account for the edges in the data
+    ti = cuda.threadIdx.x + 1
+    tj = cuda.threadIdx.y + 1
+    return i, j, ti, tj
+
+
+
+@cuda.jit(device=True, fastmath=True)
 def _device_is_at_edge_k(
     k, nx_p2, ny_p2,
     i, j, ti, tj,
@@ -104,7 +117,7 @@ def _device_is_at_edge_k(
 
 
 
-@cuda.jit(device=True)
+@cuda.jit(device=True, fastmath=True)
 def _device_read_sarr_with_edges(
     in_arr, out_sarr,
     i, j, ti, tj,
@@ -135,7 +148,7 @@ def _device_read_sarr_with_edges(
     return
 
 
-@cuda.jit(device=True)
+@cuda.jit(device=True, fastmath=True)
 def _device_init_sarr_with_edges(
     init_value, out_sarr, nx_p2, ny_p2,
     i, j, ti, tj,
@@ -402,6 +415,34 @@ def _device_move_fluid(
 #-----------------------------------------------------------------------------#
 #    Erosion: Rainfall: Evolve
 #-----------------------------------------------------------------------------#
+
+
+@cuda.jit(fastmath=True)
+def _erode_rainfall_evolve_cuda_final(
+    stats_cuda, d_stats_cuda,
+):
+    """Finalizing by adding back the d_stats_cuda to stats_cuda."""
+    
+    # - define shared data structure -
+    zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
+    zero_stat = zero_stat_cuda[0]
+    
+    # - get thread coordinates -
+    nx_p2, ny_p2 = stats_cuda.shape
+    i, j , ti, tj = _device_get_coord()
+
+    # - preload data -
+    stat = stats_cuda[i, j]
+    # add back at edges
+    for k in range(1, N_ADJ_P1):
+        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+            # add everything, just in case
+            for n in range(d_stats_cuda.shape[-1]):
+                _device_add_stats(stat, d_stats_cuda[i, j, n])
+                d_stats_cuda[i, j, n] = zero_stat
+            break
+    # write back
+    stats_cuda[i, j] = stat
     
 
 @cuda.jit(fastmath=True)
@@ -445,15 +486,10 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - get thread coordinates -
     nx_p2, ny_p2 = stats_cuda.shape
-    i, j = cuda.grid(2)
-    # add 1 to account for the edges in the data
-    i += 1; j += 1
-    if i + 1 >= nx_p2 or j + 1 >= ny_p2:
+    i, j , ti, tj = _device_get_coord()
+    if i+1 >= nx_p2 or j+1 >= ny_p2:
         # do nothing if out of bound
         return
-    # add 1 to account for the edges in the data
-    ti = cuda.threadIdx.x + 1
-    tj = cuda.threadIdx.y + 1
 
     # - preload data -
     # load shared
@@ -576,6 +612,10 @@ def _erode_rainfall_evolve_cuda(
         cuda.synchronize()
     
     # - return -
+    _erode_rainfall_evolve_cuda_final[cuda_bpg_shape, cuda_tpb_shape](
+        stats_cuda, d_stats_cuda,
+    )
+    cuda.synchronize()
     stats = stats_cuda.copy_to_host()
     print("WARNING: *** Cuda version of this func not yet complete. ***")
     return stats
