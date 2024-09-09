@@ -52,7 +52,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     #    they will not be used.
     'evapor_rate': {
         '_TYPE': np.float32,
-        'value': np.float32(-2.**(-6)),
+        'value': np.float32(-2.**(-10)),
         '_DOC_': """Evaporation rate per step.
         .
             float32 with abs(evapor_rate) >= z_res or == 0

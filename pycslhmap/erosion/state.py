@@ -297,7 +297,7 @@ class ErosionState(HMap):
             #    are always 0 by default
             self.edges[:] = 0.
             self.edges['soil'] = self.stats['soil']
-            self.edges['soil'][1:-1, 1:-1] = -1.
+            self.edges['soil'][2:-2, 2:-2] = -1.
             self.edges['aqua'] = np.where(
                 self.edges['soil'] < 0.,
                 -1.,

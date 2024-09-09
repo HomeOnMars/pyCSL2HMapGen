@@ -469,8 +469,6 @@ def _erode_rainfall_evolve_cuda_sub(
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
-    edges_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # 5 elems: 0:origin, 1:pp, 2:pm, 3:mp, 4:mm
@@ -494,7 +492,6 @@ def _erode_rainfall_evolve_cuda_sub(
     # - preload data -
     # load shared
     _device_read_sarr_with_edges(stats_cuda, stats_sarr, i, j, ti, tj)
-    _device_read_sarr_with_edges(edges_cuda, edges_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     # add back at edges
@@ -509,7 +506,7 @@ def _erode_rainfall_evolve_cuda_sub(
             nx_p2, ny_p2, i, j, ti, tj)
     # load local
     stat = stats_sarr[ti, tj]
-    edge = edges_sarr[ti, tj]
+    edge = edges_cuda[ i,  j]
     
     # - rain & evaporate -
     # cap rains to the maximum height
@@ -541,9 +538,13 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - write data back -
     # summarize
-    for k in range(N_ADJ_P1):
-        _device_add_stats(stat, d_stats_sarr[ti, tj, k])
-    _device_normalize_stat(stat, z_res)
+    if edge['soil'] < 0:
+        for k in range(N_ADJ_P1):
+            _device_add_stats(stat, d_stats_sarr[ti, tj, k])
+        _device_normalize_stat(stat, z_res)
+    else:
+        # disgard changes and apply boundary conditions
+        stat = edge
     # write back
     stats_cuda[i, j] = stat
     # write back at edges
