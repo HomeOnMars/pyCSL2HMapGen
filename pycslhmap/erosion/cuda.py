@@ -15,6 +15,7 @@ from ..util import (
 )
 from .defaults import (
     _ErosionStateDataDtype, ErosionStateDataType,
+    _ErosionStateDataExtendedDtype, ErosionStateDataExtendedType,
 )
 
 from typing import Self
@@ -59,11 +60,28 @@ else:
 CUDA_TPB : int = 16
 CUDA_TPB_P2: int = CUDA_TPB+2
 
-_STAT_DELTA_ZERO : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
+N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
+# ADJ_OFFSETS : npt.NDArray = np.array([
+#     [ 0,  0],
+#     [ 1,  1],
+#     [ 1, -1],
+#     [-1,  1],
+#     [-1, -1],
+# ], dtype=np.int8)
+ADJ_OFFSETS : tuple = (
+    ( 0,  0),
+    ( 1,  1),
+    ( 1, -1),
+    (-1,  1),
+    (-1, -1),
+)
+
+_ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
+
 
 
 #-----------------------------------------------------------------------------#
-#    Device Functions
+#    Device Functions: Memory
 #-----------------------------------------------------------------------------#
 
 
@@ -126,7 +144,7 @@ def _device_init_sarr_with_edges(
     if tj == CUDA_TPB or j+2 == ny_p2:
         out_sarr[ti, tj+1] = init_value
     return
-
+    
 
 
 #-----------------------------------------------------------------------------#
@@ -252,15 +270,125 @@ def _erode_rainfall_init_sub_cuda(
 
 
 #-----------------------------------------------------------------------------#
-#    Erosion: Rainfall: Evolve
+#    Device Functions: Physics
 #-----------------------------------------------------------------------------#
 
+
+@cuda.jit(device=True, fastmath=True)
+def _device_add_stats(
+    stat : _ErosionStateDataDtype,
+    stat_add: _ErosionStateDataDtype,
+):
+    """Adding stat_add to stat."""
+    stat['soil'] += stat_add['soil']
+    stat['sedi'] += stat_add['sedi']
+    stat['aqua'] += stat_add['aqua']
+    stat['ekin'] += stat_add['ekin']
+    return
+
+
+@cuda.jit(device=True, fastmath=True)
+def _device_get_z_and_h(
+    stat : _ErosionStateDataDtype,
+) -> tuple[float32, float32]:
+    """Get total height z and fluid height h from stat."""
+    h = stat['sedi'] + stat['aqua']
+    return stat['soil'] + h, h
+
+    
+@cuda.jit(device=True, fastmath=True)
+def _device_normalize_stat(
+    stat : _ErosionStateDataDtype,
+    z_res: float32,
+):
+    """Normalize stat var.
+    
+    return sedi to soil if all water evaporated etc.
+    """
+    if stat['aqua'] < z_res:
+        # water all evaporated.
+        stat['aqua'] = 0
+        stat['soil'] += stat['sedi']
+        stat['sedi'] = 0
+        stat['ekin'] = 0
+    return
+
+
+@cuda.jit(device=True, fastmath=True)
+def _device_move_fluid(
+    stats_local,    # in
+    d_stats_local,    # out
+    zero_stat,    # in
+    flow_eff: float32,    # in
+):
+    """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
+
+    Save the changes to d_stats_local.
+    """
+
+    # - init -
+    d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)
+    
+    stat = stats_local[0]
+    z0, h0 = _device_get_z_and_h(stat)
+
+    # - do things -
+    if not h0:
+        for k in range(N_ADJ_P1):
+            d_stats_local[k] = zero_stat
+    else:
+        # only do things if water presents
+        # d_hs_local will be init-ed
+
+        # get how much fluid is moved to adjecent cells
+        d_h_tot = float32(0.)
+        for k in range(1, N_ADJ_P1):
+            zk, hk = _device_get_z_and_h(stats_local[k])
+            # d_h: fluid to be moved
+            #    0 <= d_h/flow_eff <= h0
+            d_h = max(min(z0 - zk, h0), float32(0.)) * flow_eff
+            d_h_tot += d_h
+            d_hs_local[k] = d_h
+        d_hs_local[0] = -d_h_tot
+        if d_h_tot > h0:
+            # shouldn't have happened, but just in case
+            d_h_fac = h0 / d_h_tot
+            for k in range(1, N_ADJ_P1):
+                d_hs_local[k] *= d_h_fac
+            d_h_tot = h0
+            d_hs_local[0] = -h0
+
+        # parse amount of fluid into amount of sedi, aqua, ekin
+        if d_h_tot:
+            # only do things if something actually moved
+            
+            # factions that flows away:
+            d_se_fac = stat['sedi'] / h0
+            d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
+            # kinetic energy always flows fully away with current
+            d_ek_fac = flow_eff
+
+            for k in range(N_ADJ_P1):
+                d_stats_local[k]['soil'] = 0
+                d_stats_local[k]['sedi'] = d_hs_local[k] * d_se_fac
+                d_stats_local[k]['aqua'] = d_hs_local[k] * d_aq_fac
+                d_stats_local[k]['ekin'] = d_hs_local[k] / d_h_tot * d_ek_fac
+    return
+    
+
+
+#-----------------------------------------------------------------------------#
+#    Erosion: Rainfall: Evolve
+#-----------------------------------------------------------------------------#
+    
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
     stats_cuda, edges_cuda, flags_cuda,
-    z_max, z_res,
-    evapor_rate,
+    z_max: float32,
+    z_res: float32,
+    evapor_rate : float32,
+    flow_eff    : float32,
 ):
     """Evolving 1 step.
     
@@ -283,9 +411,15 @@ def _erode_rainfall_evolve_cuda_sub(
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # 5 elems: 0:origin, 1:pp, 2:pm, 3:mp, 4:mm
-    stats_delta_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_P2, CUDA_TPB_P2, 5), dtype=_ErosionStateDataDtype)
-    stat_delta_zero_cuda = cuda.const.array_like(_STAT_DELTA_ZERO)
+    d_stats_sarr = cuda.shared.array(
+        shape=(CUDA_TPB_P2, CUDA_TPB_P2, N_ADJ_P1),
+        dtype=_ErosionStateDataDtype)
+    # for init
+    zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
+    zero_stat = zero_stat_cuda[0]
+
+    stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
+    d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     
     # - get thread coordinates -
     nx_p2, ny_p2 = stats_cuda.shape
@@ -306,33 +440,46 @@ def _erode_rainfall_evolve_cuda_sub(
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     # init shared temp
-    for k in range(stats_delta_sarr.shape[-1]):
+    for k in range(N_ADJ_P1):
         _device_init_sarr_with_edges(
-            stat_delta_zero_cuda[0], stats_delta_sarr[:, :, k],
+            zero_stat, d_stats_sarr[:, :, k],
             nx_p2, ny_p2, i, j, ti, tj)
     # load local
     stat = stats_sarr[ti, tj]
     edge = edges_sarr[ti, tj]
-    cuda.syncthreads()
-
+    
     # - rain & evaporate -
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
-    if stat['aqua'] < z_res:
-        # water all evaporated.
-        stat['aqua'] = 0
-        stat['soil'] += stat['sedi']
-        stat['sedi'] = 0
-        stat['ekin'] = 0
-    # *** add more sophisticated non-uniform rain code here! ***
+    _device_normalize_stat(stat, z_res)
+    stats_sarr[ti, tj] = stat
     
+    cuda.syncthreads()
+
+    # load local
+    for k in range(N_ADJ_P1):
+        stats_local[k] = stats_sarr[
+            ti + ADJ_OFFSETS[k][0],
+            tj + ADJ_OFFSETS[k][1]]
+
     # - move water -
+    _device_move_fluid(stats_local, d_stats_local, zero_stat, flow_eff)
     
+    for k in range(N_ADJ_P1):
+        d_stats_sarr[
+            ti + ADJ_OFFSETS[k][0],
+            tj + ADJ_OFFSETS[k][1],
+            k
+        ] = d_stats_local[k]
     
     # *** Add code here! ***
 
     # - write data back -
-    stat['z'] = stat['soil'] + stat['sedi'] + stat['aqua']
+    # summarize
+    cuda.syncthreads()
+    for k in range(N_ADJ_P1):
+        _device_add_stats(stat, d_stats_sarr[ti, tj, k])
+    # write back
     stats_cuda[i, j] = stat
     
     
@@ -345,6 +492,7 @@ def _erode_rainfall_evolve_cuda(
     z_max: np.float32,
     z_res: np.float32,
     evapor_rate: np.float32,
+    flow_eff: np.float32,
     # ...
     verbose: VerboseType = True,
     **kwargs,
@@ -375,10 +523,12 @@ def _erode_rainfall_evolve_cuda(
 
     # - run -
     for s in range(n_step):
+        # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
             stats_cuda, edges_cuda, flags_cuda,
             z_max, z_res,
             evapor_rate,
+            flow_eff,
         )
         cuda.synchronize()
     

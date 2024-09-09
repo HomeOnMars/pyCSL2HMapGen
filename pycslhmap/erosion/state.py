@@ -178,12 +178,12 @@ class ErosionState(HMap):
         
         super().normalize(overwrite=overwrite, verbose=verbose)
 
-        self.stats['z'] = (
-            self.stats['sedi'] + self.stats['soil'] + self.stats['aqua']
-        )
-        self.edges['z'] = (
-            self.edges['sedi'] + self.edges['soil'] + self.edges['aqua']
-        )
+        # self.stats['z'] = (
+        #     self.stats['sedi'] + self.stats['soil'] + self.stats['aqua']
+        # )
+        # self.edges['z'] = (
+        #     self.edges['sedi'] + self.edges['soil'] + self.edges['aqua']
+        # )
         
         if self.__done__init:
             # safety checks
@@ -307,18 +307,19 @@ class ErosionState(HMap):
                     0.,
                 ),
             )
-            self.edges['z'] = self.edges['soil'] + self.edges['aqua']
+            # self.edges['z'] = self.edges['soil'] + self.edges['aqua']
         
         # - fill basins -
         # (lakes / sea / whatev)
         zs, n_cycles = sub_func(
-            self.stats['soil'], self.edges['z'], z_range=z_max-z_min)
+            self.stats['soil'], self.edges['soil'] + self.edges['aqua'],
+            z_range=z_max-z_min)
 
         self.stats['aqua'] = self.edges['aqua']
         self.stats['aqua'][1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
         self.stats['sedi'] = 0.
         self.stats['ekin'] = 0. # is zero because speed is zero
-        self.stats['z'] = self.stats['soil'] + self.stats['aqua']
+        # self.stats['z'] = self.stats['soil'] + self.stats['aqua']
 
         # - time it -
         runtime_t1 = now()
