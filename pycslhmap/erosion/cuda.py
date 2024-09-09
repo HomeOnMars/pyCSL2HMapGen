@@ -57,23 +57,21 @@ else:
 # The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
 # Example see
 # https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
+# 2 <= CUDA_TPB <= 32
 CUDA_TPB : int = 16
 CUDA_TPB_P2: int = CUDA_TPB+2
 
 N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
-# ADJ_OFFSETS : npt.NDArray = np.array([
-#     [ 0,  0],
-#     [ 1,  1],
-#     [ 1, -1],
-#     [-1,  1],
-#     [-1, -1],
-# ], dtype=np.int8)
+# Adjacent cells location offsets
+#    matches _device_is_at_edge_k().
+#    Do NOT change the first 5 rows.
 ADJ_OFFSETS : tuple = (
+    # i,  j
     ( 0,  0),
-    ( 1,  1),
-    ( 1, -1),
-    (-1,  1),
-    (-1, -1),
+    (-1,  0),
+    ( 1,  0),
+    ( 0, -1),
+    ( 0,  1),
 )
 
 _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
@@ -83,6 +81,27 @@ _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
 #-----------------------------------------------------------------------------#
 #    Device Functions: Memory
 #-----------------------------------------------------------------------------#
+
+
+@cuda.jit(device=True)
+def _device_is_at_edge_k(
+    k, nx_p2, ny_p2,
+    i, j, ti, tj,
+) -> bool:
+    """Test if it is at k-th edge.
+
+    k-th edge matches ADJ_OFFSETS constant.
+    """
+    if   k == 1 and ti == 1:
+        return True
+    elif k == 2 and (ti == CUDA_TPB or i+2 == nx_p2):
+        return True
+    elif k == 3 and tj == 1:
+        return True
+    elif k == 4 and (tj == CUDA_TPB or j+2 == ny_p2):
+        return True
+    return False
+
 
 
 @cuda.jit(device=True)
@@ -287,6 +306,7 @@ def _device_add_stats(
     return
 
 
+
 @cuda.jit(device=True, fastmath=True)
 def _device_get_z_and_h(
     stat : _ErosionStateDataDtype,
@@ -295,7 +315,8 @@ def _device_get_z_and_h(
     h = stat['sedi'] + stat['aqua']
     return stat['soil'] + h, h
 
-    
+
+
 @cuda.jit(device=True, fastmath=True)
 def _device_normalize_stat(
     stat : _ErosionStateDataDtype,
@@ -312,6 +333,7 @@ def _device_normalize_stat(
         stat['sedi'] = 0
         stat['ekin'] = 0
     return
+
 
 
 @cuda.jit(device=True, fastmath=True)
@@ -384,7 +406,7 @@ def _device_move_fluid(
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
-    stats_cuda, edges_cuda, flags_cuda,
+    stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,
     z_max: float32,
     z_res: float32,
     evapor_rate : float32,
@@ -439,6 +461,11 @@ def _erode_rainfall_evolve_cuda_sub(
     _device_read_sarr_with_edges(edges_cuda, edges_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
+    # add back at edges
+    for k in range(1, N_ADJ_P1):
+        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+            _device_add_stats(stats_sarr[ti, tj], d_stats_cuda[i, j, (k-1)//2])
+            d_stats_cuda[i, j, (k-1)//2] = zero_stat
     # init shared temp
     for k in range(N_ADJ_P1):
         _device_init_sarr_with_edges(
@@ -474,13 +501,23 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # *** Add code here! ***
 
+    cuda.syncthreads()
+    
     # - write data back -
     # summarize
-    cuda.syncthreads()
     for k in range(N_ADJ_P1):
         _device_add_stats(stat, d_stats_sarr[ti, tj, k])
+    _device_normalize_stat(stat, z_res)
     # write back
     stats_cuda[i, j] = stat
+    # write back at edges
+    for k in range(1, N_ADJ_P1):
+        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+            d_stats_cuda[
+                i + ADJ_OFFSETS[k][0],
+                j + ADJ_OFFSETS[k][1],
+                (k-1)//2
+            ] = d_stats_local[k]
     
     
 
@@ -508,6 +545,7 @@ def _erode_rainfall_evolve_cuda(
 
     # - init cuda -
     npix_x, npix_y = npix_xy
+    nx_p2, ny_p2 = stats.shape
     # tpb: threads per block
     cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
     # bpg: blocks per grid
@@ -520,12 +558,17 @@ def _erode_rainfall_evolve_cuda(
     edges_cuda = cuda.to_device(edges)
     # for flags_cuda def, see _erode_rainfall_evolve_cuda_sub doc string.
     flags_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
+    # d_stats_cuda: for caching tempeorary results from the edges
+    # last dim has 2 elems, for i and j direction
+    # assuming CUDA_TPB >= 2
+    d_stats_cuda = cuda.to_device(np.zeros(
+        (nx_p2, ny_p2, 2), dtype=_ErosionStateDataDtype))
 
     # - run -
     for s in range(n_step):
         # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
-            stats_cuda, edges_cuda, flags_cuda,
+            stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,
             z_max, z_res,
             evapor_rate,
             flow_eff,
