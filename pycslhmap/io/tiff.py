@@ -11,8 +11,7 @@ Author: HomeOnMars
 """
 
 
-# Dependencies
-
+# imports (3rd party)
 import numpy as np
 from numpy import pi
 from scipy.interpolate import RegularGridInterpolator
@@ -27,6 +26,8 @@ except ModuleNotFoundError as e:
     print(f"\n*   Warning: {__name__}:\n\t"
           + f"{e}. Real world import functionality UNAVAILABLE.")
 
+# imports (my libs)
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 def get_interpolator_tiff(

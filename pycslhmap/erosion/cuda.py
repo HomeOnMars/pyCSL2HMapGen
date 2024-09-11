@@ -8,18 +8,10 @@ Author: HomeOnMars
 """
 
 
-# Dependencies
-from ..util import (
-    #now,
-    VerboseType,
-)
-from .defaults import (
-    _ErosionStateDataDtype, ErosionStateDataType,
-    _ErosionStateDataExtendedDtype, ErosionStateDataExtendedType,
-)
-
+# imports (built-in)
 from typing import Self
 
+# imports (3rd party)
 from numba import jit, prange, cuda, float32, bool_
 import numpy as np
 from numpy import typing as npt
@@ -45,6 +37,17 @@ else:
     print(f"\n*   Warning: {__name__}:\n\t"
           + "NO Cuda supported devices found."
           + " GPU-accelerated functions UNAVAILABLE.")
+
+# imports (my libs)
+from ..util import (
+    _LOAD_ORDER, #now,
+    VerboseType,
+)
+from .defaults import (
+    _ErosionStateDataDtype, ErosionStateDataType,
+    _ErosionStateDataExtendedDtype, ErosionStateDataExtendedType,
+)
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 

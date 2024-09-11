@@ -22,7 +22,16 @@ Author: HomeOnMars
 """
 
 
-# Dependencies
+# imports (built-in)
+from typing import Self, Callable
+from copy import deepcopy
+
+# imports (3rd party)
+from numba import jit
+import numpy as np
+from numpy import typing as npt
+
+# imports (my libs)
 from ..util import (
     now, comment_docstring, _not_implemented_func,
     VerboseType,
@@ -41,14 +50,7 @@ from .nbjit import (
     _erode_rainfall_init_sub_nbjit,
 )
 from ..hmap import HMap
-
-from typing import Self, Callable
-from copy import deepcopy
-
-from numba import jit
-import numpy as np
-from numpy import typing as npt
-
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 #-----------------------------------------------------------------------------#

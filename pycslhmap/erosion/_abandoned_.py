@@ -8,22 +8,23 @@ Author: HomeOnMars
 """
 
 
-# Dependencies
+# imports (built-in)
+from typing import Self
+import random
+
+# imports (3rd party)
+from numba import jit, prange
+import numpy as np
+from numpy import typing as npt
+
+# imports (my libs)
 from ..hmap.util import (
     _minabs, _norm, _hat,
     _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d,
     _get_z_and_dz,
 )
 from .nbjit import _erode_rainfall_init_sub_nbjit
-
-from typing import Self
-import random
-
-from numba import jit, prange
-import numpy as np
-from numpy import typing as npt
-
-
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 #-----------------------------------------------------------------------------#

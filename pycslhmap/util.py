@@ -11,10 +11,15 @@ Author: HomeOnMars
 """
 
 
-# Dependencies
+# imports (built-in)
+from typing import Self
+from datetime import datetime, UTC
+
+# imports (3rd party)
 import numpy as np
 from numpy import typing as npt
-from datetime import datetime, UTC
+
+# imports (my libs)
 
 
 
@@ -23,11 +28,16 @@ from datetime import datetime, UTC
 #-----------------------------------------------------------------------------#
 
 
+# global variables
+_LOAD_ORDER_LIST : list[dict[str, str]] = []
+
+
+# - types -
+VerboseType : type = bool
+
+
+# - functions -
 now = lambda: datetime.now(UTC)
-
-
-VerboseType = bool
-
 
 
 def comment_docstring(docstring: str, leading_txt: str = '# '):
@@ -50,15 +60,17 @@ def comment_docstring(docstring: str, leading_txt: str = '# '):
         if stripped:
             indent = min(indent, len(line) - len(stripped))
     # Remove indentation (first line is special):
-    trimmed = [leading_txt + lines[0].strip()]
+    trimmed = [lines[0].strip()]
     if indent < INDENT_MAX_SIZE:
         for line in lines[1:]:
-            trimmed.append(leading_txt + line[indent:].rstrip())
+            trimmed.append(line[indent:].rstrip())
     # Strip off trailing and leading blank lines:
     while trimmed and not trimmed[-1]:
         trimmed.pop()
     while trimmed and not trimmed[0]:
         trimmed.pop(0)
+    # add leading texts
+    trimmed = [leading_txt + line_new for line_new in trimmed]
     # Return a single string:
     return '\n'.join(trimmed)
 
@@ -67,6 +79,45 @@ def comment_docstring(docstring: str, leading_txt: str = '# '):
 def _not_implemented_func(*args, **kwargs):
     """A placeholder function without implementation."""
     raise NotImplementedError
+
+
+
+class _LoadOrder:
+    """A class for recording load order of python scripts.
+
+    For internal uses only.
+    """
+    def __init__(self):
+        self.__data : list[dict[str, str]] = []
+
+    @property
+    def data(self):
+        return self.__data
+
+    def _add(self, spec: type(__spec__), doc: str) -> Self:
+        """Add the current module to the list.
+
+        Run this once after the imports in each modules.
+        """
+        try:
+            self.__data.append({
+                'name': spec.name,
+                'doc' : comment_docstring(doc),
+            })
+        except AttributeError as e:
+            print(f"*   Error when determining metadata:\n\t{e}")
+            
+        return self
+
+    def __repr__(self):
+        return f"{self.__data}"
+
+    def __str__(self):
+        lines = [f"{it['name']:30}  {it['doc'].splitlines()[0]}" for it in self.__data]
+        return '\n'.join(lines)
+
+
+_LOAD_ORDER = _LoadOrder()._add(__spec__, __doc__)
 
 
 

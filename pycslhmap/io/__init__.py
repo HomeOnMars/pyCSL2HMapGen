@@ -9,3 +9,4 @@ Author: HomeOnMars
 """
 
 from .tiff import get_CSL_height_maps
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)

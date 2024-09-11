@@ -8,12 +8,10 @@ Author: HomeOnMars
 """
 
 
-# Dependencies
-from ..util import VerboseType
-from .util import _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d
-
+# imports (built-in)
 from typing import Self
 
+# imports (3rd party)
 from numba import jit, prange
 import numpy as np
 from numpy import typing as npt
@@ -21,6 +19,11 @@ import matplotlib as mpl
 from matplotlib import pyplot as plt
 import png
 from scipy.ndimage import map_coordinates
+
+# imports (my libs)
+from ..util import VerboseType
+from .util import _ind_to_pos, _pos_to_ind_f, _pos_to_ind_d
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 

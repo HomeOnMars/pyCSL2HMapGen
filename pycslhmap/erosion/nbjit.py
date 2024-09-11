@@ -7,16 +7,21 @@ Author: HomeOnMars
 -------------------------------------------------------------------------------
 """
 
+
+# imports (built-in)
+from typing import Self, Callable
+
+# imports (3rd party)
+from numba import jit, prange
+import numpy as np
+from numpy import typing as npt
+
+# imports (my libs)
 from .cuda import (
     CAN_CUDA,
     _erode_rainfall_init_sub_cuda,
 )
-
-from typing import Self, Callable
-
-from numba import jit, prange
-import numpy as np
-from numpy import typing as npt
+from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 #-----------------------------------------------------------------------------#
