@@ -101,8 +101,8 @@ def _device_get_coord() -> tuple[int, int, int, int]:
 
 @cuda.jit(device=True, fastmath=True)
 def _device_is_at_edge_k(
-    k, nx_p2, ny_p2,
-    i, j, ti, tj,
+    k, nx_p2, ny_p2,    # in
+    i, j, ti, tj,       # in
 ) -> bool:
     """Test if it is at k-th edge.
 
@@ -122,8 +122,9 @@ def _device_is_at_edge_k(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_read_sarr_with_edges(
-    in_arr, out_sarr,
-    i, j, ti, tj,
+    in_arr,       # in
+    out_sarr,     # out
+    i, j, ti, tj, # in
 ):
     """Read data from global memory into shared array.
 
@@ -153,8 +154,10 @@ def _device_read_sarr_with_edges(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_init_sarr_with_edges(
-    init_value, out_sarr, nx_p2, ny_p2,
-    i, j, ti, tj,
+    init_value,   # in
+    out_sarr,     # out
+    nx_p2, ny_p2, # in
+    i, j, ti, tj, # in
 ):
     """Read data from global memory into shared array.
 
@@ -188,7 +191,11 @@ def _device_init_sarr_with_edges(
 
 
 @cuda.jit(fastmath=True)
-def _erode_rainfall_init_sub_cuda_sub(zs_cuda, soils_cuda, is_changed):
+def _erode_rainfall_init_sub_cuda_sub(
+    zs_cuda,     # in/out
+    soils_cuda,  # in
+    is_changed,  # out
+):
     """CUDA GPU-accelerated sub process.
 
     Input data type: cuda.cudadrv.devicearray.DeviceNDArray
@@ -354,10 +361,10 @@ def _device_normalize_stat(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_move_fluid(
-    stats_local,    # in
-    d_stats_local,    # out
-    zero_stat,    # in
-    flow_eff: float32,    # in
+    stats_local,        # in
+    d_stats_local,      # out
+    zero_stat,          # in
+    flow_eff: float32,  # in
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
@@ -423,6 +430,7 @@ def _device_move_fluid(
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_final(
     stats_cuda, d_stats_cuda,    # in/out
+    edges_cuda,            # in
     i_layer_read: int,     # in
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
@@ -434,20 +442,22 @@ def _erode_rainfall_evolve_cuda_final(
     # - get thread coordinates -
     nx_p2, ny_p2, _ = stats_cuda.shape
     i, j , ti, tj = _device_get_coord()
-    i_layer_write = 1 - i_layer_read
 
     # - preload data -
     stat = stats_cuda[i, j, i_layer_read]
+    edge = edges_cuda[i, j]
     # add back at edges
     for k in range(1, N_ADJ_P1):
         if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
             # add everything, just in case
             for n in range(d_stats_cuda.shape[-1]):
-                _device_add_stats(stat, d_stats_cuda[i, j, n])
+                if edge['soil'] < 0:    # no boundary condition here
+                    _device_add_stats(stat, d_stats_cuda[i, j, n])
+                # no changes at the boundary
                 d_stats_cuda[i, j, n] = zero_stat
             break
     # write back
-    stats_cuda[i, j, i_layer_write] = stat
+    stats_cuda[i, j, i_layer_read] = stat
     
 
 @cuda.jit(fastmath=True)
@@ -482,7 +492,8 @@ def _erode_rainfall_evolve_cuda_sub(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
-    # 5 elems: 0:origin, 1:pp, 2:pm, 3:mp, 4:mm
+    # 5 elems **for** this [i, j] location **from** adjacent locations:
+    #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
     d_stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB_P2, CUDA_TPB_P2, N_ADJ_P1),
         dtype=_ErosionStateDataDtype)
@@ -490,6 +501,7 @@ def _erode_rainfall_evolve_cuda_sub(
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
     zero_stat = zero_stat_cuda[0]
 
+    # 5 elems **of/for** adjacent locations **from** this [i, j] location
     stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     
@@ -507,11 +519,6 @@ def _erode_rainfall_evolve_cuda_sub(
         stats_cuda[:, :, i_layer_read], stats_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
-    # add back at edges
-    for k in range(1, N_ADJ_P1):
-        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
-            _device_add_stats(stats_sarr[ti, tj], d_stats_cuda[i, j, (k-1)//2])
-            d_stats_cuda[i, j, (k-1)//2] = zero_stat
     # init shared temp
     for k in range(N_ADJ_P1):
         _device_init_sarr_with_edges(
@@ -628,12 +635,13 @@ def _erode_rainfall_evolve_cuda(
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read
+        # add back edges
+        _erode_rainfall_evolve_cuda_final[cuda_bpg_shape, cuda_tpb_shape](
+            stats_cuda, d_stats_cuda, edges_cuda, i_layer_read,
+        )
+        cuda.synchronize()
     
     # - return -
-    _erode_rainfall_evolve_cuda_final[cuda_bpg_shape, cuda_tpb_shape](
-        stats_cuda, d_stats_cuda, i_layer_read,
-    )
-    cuda.synchronize()
     stats = stats_cuda[:, :, i_layer_read].copy_to_host()
     print("WARNING: *** Cuda version of this func not yet complete. ***")
     return stats
