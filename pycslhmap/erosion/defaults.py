@@ -26,10 +26,11 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 _ErosionStateDataDtype : np.dtype = np.dtype([
     # note: nan will be noted as -1. in below fields
-    ('soil', np.float32),    # [positive] soil (solid) height
-    ('sedi', np.float32),    # [positive] sediment (in water) height
-    ('aqua', np.float32),    # [positive] water (excluding sediment) height
-    ('ekin', np.float32),    # [positive] kinetic energy of water+sediment
+    ('soil', np.float32),   # [positive] soil (solid) height
+    ('sedi', np.float32),   # [positive] sediment (in water) height
+    ('aqua', np.float32),   # [positive] water (excluding sediment) height
+    ('ekin', np.float32),   # [positive] kinetic energy of water+sediment
+                            #            per area per water density.
 ])
 ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
 
@@ -146,6 +147,15 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         .
             Used to regulate the velocity in capas calc,
             So its influence flatten out when v is high.
+        .""",
+    },
+    'rho_soil_div_aqua': {
+        '_TYPE': np.float32,
+        'value': np.float32(1.5),
+        '_DOC_': """Soil/Sediment density vs water density ratio.
+        .
+            Assuming sediment density are the same as soil,
+            Even if it mixes with the water.
         .""",
     },
     'g': {

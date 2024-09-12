@@ -365,6 +365,8 @@ def _device_move_fluid(
     d_stats_local,      # out
     zero_stat,          # in
     flow_eff: float32,  # in
+    rho_soil_div_aqua: float32,  # in
+    g: float32,         # in
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
@@ -426,17 +428,28 @@ def _device_move_fluid(
             d_se_fac = stat['sedi'] / h0
             d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
             # kinetic energy always flows fully away with current
-            d_ek_fac = flow_eff
-
+            d_ek_fac_flow = flow_eff
+            d_ek_fac_g = (d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2.
+            
             for k in range(N_ADJ_P1):
+                d_h = d_hs_local[k]
+                zk, hk = _device_get_z_and_h(stats_local[k])
                 d_stats_local[k]['soil'] = 0
-                d_stats_local[k]['sedi'] = d_hs_local[k] * d_se_fac
-                d_stats_local[k]['aqua'] = d_hs_local[k] * d_aq_fac
-                d_stats_local[k]['ekin'] = (
-                    d_hs_local[k] / d_h_tot * stat['ekin'] * d_ek_fac
-                    # *** add gravitational energy gain here ***
-                    + 0.
-                )
+                d_stats_local[k]['sedi'] = d_se_fac * d_h
+                d_stats_local[k]['aqua'] = d_aq_fac * d_h
+                # gravitational energy gain
+                # Note: a column of fluid of height from h0 to h1 has
+                #    gravitational energy per area per density of
+                #    g * (h1**2 - h0**2)  / 2.
+                d_ek = (
+                    d_ek_fac_g * d_h * (2*(h0 - hk) - (d_h + d_h_tot))
+                    if k else float32(0.)    # no g gain for the original cell
+                )    # debug: should be all 0/positive...
+                # kinetic energy flow
+                d_ek += d_ek_fac_flow * d_h / d_h_tot * stat['ekin']
+                d_stats_local[k]['ekin'] = d_ek
+            # *** Fix kinetic energy here! ***
+            # currently generates negative stat['ekin'] for some reason
     return
     
 
@@ -451,6 +464,7 @@ def _erode_rainfall_evolve_cuda_final(
     stats_cuda, d_stats_cuda,    # in/out
     edges_cuda,            # in
     i_layer_read: int,     # in
+    z_res: float32,        # in
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
     # *** Pending optimization ***
@@ -475,6 +489,7 @@ def _erode_rainfall_evolve_cuda_final(
                     _device_add_stats(stat, d_stats_cuda[i, j, n])
                 # reset
                 d_stats_cuda[i, j, n] = zero_stat
+            _device_normalize_stat(stat, z_res)
             break
     # write back
     stats_cuda[i, j, i_layer_read] = stat
@@ -489,6 +504,8 @@ def _erode_rainfall_evolve_cuda_sub(
     z_res: float32,        # in
     evapor_rate : float32, # in
     flow_eff    : float32, # in
+    rho_soil_div_aqua: float32,  # in
+    g: float32,            # in
 ):
     """Evolving 1 step.
 
@@ -564,7 +581,11 @@ def _erode_rainfall_evolve_cuda_sub(
             tj + ADJ_OFFSETS[k][1]]
 
     # - move water -
-    _device_move_fluid(stats_local, d_stats_local, zero_stat, flow_eff)
+    _device_move_fluid(
+        stats_local, d_stats_local,
+        zero_stat, flow_eff,
+        rho_soil_div_aqua, g,
+    )
     
     for k in range(N_ADJ_P1):
         d_stats_sarr[
@@ -608,6 +629,8 @@ def _erode_rainfall_evolve_cuda(
     z_res: np.float32,
     evapor_rate: np.float32,
     flow_eff: np.float32,
+    rho_soil_div_aqua: float32,
+    g: float32,
     # ...
     verbose: VerboseType = True,
     **kwargs,
@@ -650,15 +673,13 @@ def _erode_rainfall_evolve_cuda(
         # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
             stats_cuda, edges_cuda, flags_cuda, d_stats_cuda, i_layer_read,
-            z_max, z_res,
-            evapor_rate,
-            flow_eff,
+            z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua, g,
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read
         # add back edges
         _erode_rainfall_evolve_cuda_final[cuda_bpg_shape, cuda_tpb_shape](
-            stats_cuda, d_stats_cuda, edges_cuda, i_layer_read,
+            stats_cuda, d_stats_cuda, edges_cuda, i_layer_read, z_res,
         )
         cuda.synchronize()
     
