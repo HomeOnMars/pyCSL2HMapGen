@@ -550,6 +550,7 @@ def _erode_rainfall_evolve_cuda_sub(
     nx_p2, ny_p2, _ = stats_cuda.shape
     i, j , ti, tj = _device_get_coord()
     i_layer_write = 1 - i_layer_read
+    is_at_edge: bool_ = False
     if i+1 >= nx_p2 or j+1 >= ny_p2:
         # do nothing if out of bound
         return
@@ -577,6 +578,7 @@ def _erode_rainfall_evolve_cuda_sub(
     # do the edges too
     for k in range(1, N_ADJ_P1):
         if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+            is_at_edge = True
             stats_temp = stats_sarr[
                 ti + ADJ_OFFSETS[k][0],
                 tj + ADJ_OFFSETS[k][1]]
@@ -617,12 +619,9 @@ def _erode_rainfall_evolve_cuda_sub(
     if edge['soil'] < 0:
         for k in range(N_ADJ_P1):
             _device_add_stats(stat, d_stats_sarr[ti, tj, k])
-        _device_normalize_stat(stat, z_res)
     else:
         # disgard changes and apply boundary conditions
         stat = edge
-    # write back
-    stats_cuda[i, j, i_layer_write] = stat
     # write back at edges
     for k in range(1, N_ADJ_P1):
         if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
@@ -631,7 +630,12 @@ def _erode_rainfall_evolve_cuda_sub(
                 j + ADJ_OFFSETS[k][1],
                 (k-1)//2
             ] = d_stats_local[k]
-    
+    if not is_at_edge:
+        _device_normalize_stat(stat, z_res)
+        # otherwise,
+        #    wait for _erode_rainfall_evolve_cuda_final(...) for normalization
+    # write back
+    stats_cuda[i, j, i_layer_write] = stat
     
 
 def _erode_rainfall_evolve_cuda(
