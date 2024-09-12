@@ -422,7 +422,8 @@ def _device_move_fluid(
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_final(
-    stats_cuda, d_stats_cuda,
+    stats_cuda, d_stats_cuda,    # in/out
+    i_layer_read: int,     # in
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
     
@@ -431,11 +432,12 @@ def _erode_rainfall_evolve_cuda_final(
     zero_stat = zero_stat_cuda[0]
     
     # - get thread coordinates -
-    nx_p2, ny_p2 = stats_cuda.shape
+    nx_p2, ny_p2, _ = stats_cuda.shape
     i, j , ti, tj = _device_get_coord()
+    i_layer_write = 1 - i_layer_read
 
     # - preload data -
-    stat = stats_cuda[i, j]
+    stat = stats_cuda[i, j, i_layer_read]
     # add back at edges
     for k in range(1, N_ADJ_P1):
         if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
@@ -445,18 +447,24 @@ def _erode_rainfall_evolve_cuda_final(
                 d_stats_cuda[i, j, n] = zero_stat
             break
     # write back
-    stats_cuda[i, j] = stat
+    stats_cuda[i, j, i_layer_write] = stat
     
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
-    stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,
-    z_max: float32,
-    z_res: float32,
-    evapor_rate : float32,
-    flow_eff    : float32,
+    stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,    # in/out
+    i_layer_read: int,     # in
+    z_max: float32,        # in
+    z_res: float32,        # in
+    evapor_rate : float32, # in
+    flow_eff    : float32, # in
 ):
     """Evolving 1 step.
+
+    stats_cuda: (nx_p2, ny_p2, 2)-shaped
+    edges_cuda: (nx_p2, ny_p2)-shaped
+    flags_cuda: (1,)-shaped
+    d_stats_cuda: (nx_p2, ny_p2, 2)-shaped
     
     flags_cuda:
         0: Completed without error?
@@ -486,15 +494,17 @@ def _erode_rainfall_evolve_cuda_sub(
     d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     
     # - get thread coordinates -
-    nx_p2, ny_p2 = stats_cuda.shape
+    nx_p2, ny_p2, _ = stats_cuda.shape
     i, j , ti, tj = _device_get_coord()
+    i_layer_write = 1 - i_layer_read
     if i+1 >= nx_p2 or j+1 >= ny_p2:
         # do nothing if out of bound
         return
 
     # - preload data -
     # load shared
-    _device_read_sarr_with_edges(stats_cuda, stats_sarr, i, j, ti, tj)
+    _device_read_sarr_with_edges(
+        stats_cuda[:, :, i_layer_read], stats_sarr, i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     # add back at edges
@@ -549,7 +559,7 @@ def _erode_rainfall_evolve_cuda_sub(
         # disgard changes and apply boundary conditions
         stat = edge
     # write back
-    stats_cuda[i, j] = stat
+    stats_cuda[i, j, i_layer_write] = stat
     # write back at edges
     for k in range(1, N_ADJ_P1):
         if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
@@ -594,7 +604,10 @@ def _erode_rainfall_evolve_cuda(
         (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
     )
 
-    stats_cuda = cuda.to_device(stats)
+    # add 2 layers of stats: one for reading, one for writing
+    # (to avoid interdependence between threads)
+    stats_cuda = cuda.to_device(np.stack((stats, stats), axis=-1))
+    i_layer_read: int = 0    # 0 or 1; the other one is for writing 
     edges_cuda = cuda.to_device(edges)
     # for flags_cuda def, see _erode_rainfall_evolve_cuda_sub doc string.
     flags_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
@@ -608,19 +621,20 @@ def _erode_rainfall_evolve_cuda(
     for s in range(n_step):
         # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
-            stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,
+            stats_cuda, edges_cuda, flags_cuda, d_stats_cuda, i_layer_read,
             z_max, z_res,
             evapor_rate,
             flow_eff,
         )
         cuda.synchronize()
+        i_layer_read = 1 - i_layer_read
     
     # - return -
     _erode_rainfall_evolve_cuda_final[cuda_bpg_shape, cuda_tpb_shape](
-        stats_cuda, d_stats_cuda,
+        stats_cuda, d_stats_cuda, i_layer_read,
     )
     cuda.synchronize()
-    stats = stats_cuda.copy_to_host()
+    stats = stats_cuda[:, :, i_layer_read].copy_to_host()
     print("WARNING: *** Cuda version of this func not yet complete. ***")
     return stats
 
