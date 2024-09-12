@@ -370,7 +370,7 @@ def _device_move_fluid(
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
-    Save the changes to d_stats_local.
+    Init and save the changes to d_stats_local.
     """
 
     # - init -
@@ -379,12 +379,11 @@ def _device_move_fluid(
     stat = stats_local[0]
     z0, h0 = _device_get_z_and_h(stat)
 
+    for k in range(N_ADJ_P1):
+        d_stats_local[k] = zero_stat
+
     # - do things -
-    if not h0:
-        # no water presents, cancel
-        for k in range(N_ADJ_P1):
-            d_stats_local[k] = zero_stat
-    else:
+    if h0:
         # only do things if water exists
         # d_hs_local will be init-ed
 
@@ -433,23 +432,26 @@ def _device_move_fluid(
             
             for k in range(N_ADJ_P1):
                 d_h = d_hs_local[k]
-                zk, hk = _device_get_z_and_h(stats_local[k])
-                d_stats_local[k]['soil'] = 0
-                d_stats_local[k]['sedi'] = d_se_fac * d_h
-                d_stats_local[k]['aqua'] = d_aq_fac * d_h
-                # gravitational energy gain
-                # Note: a column of fluid of height from h0 to h1 has
-                #    gravitational energy per area per density of
-                #    g * (h1**2 - h0**2)  / 2.
-                d_ek = (
-                    d_ek_fac_g * d_h * (2*(h0 - hk) - (d_h + d_h_tot))
-                    if k else float32(0.)    # no g gain for the original cell
-                )    # debug: should be all 0/positive...
-                # kinetic energy flow
-                d_ek += d_ek_fac_flow * d_h / d_h_tot * stat['ekin']
-                d_stats_local[k]['ekin'] = d_ek
-            # *** Fix kinetic energy here! ***
-            # currently generates negative stat['ekin'] for some reason
+                if d_h:
+                    zk, hk = _device_get_z_and_h(stats_local[k])
+                    #d_stats_local[k]['soil'] = 0
+                    d_stats_local[k]['sedi'] = d_se_fac * d_h
+                    d_stats_local[k]['aqua'] = d_aq_fac * d_h
+                    # gravitational energy gain
+                    # Note: a column of fluid of height from h0 to h1 has
+                    #    gravitational energy per area per density of
+                    #    g * (h1**2 - h0**2)  / 2.
+                    d_ek = (
+                        d_ek_fac_g * d_h * max(
+                            2*(z0 - zk) - (d_h + d_h_tot),
+                            float32(0.))    # safety cap
+                        if k else float32(0.) # no g gain for the original cell
+                    )    # debug: should be all 0/positive...
+                    # kinetic energy flow
+                    d_ek += d_ek_fac_flow * d_h / d_h_tot * stat['ekin']
+                    d_stats_local[k]['ekin'] = d_ek
+                    # *** Fix kinetic energy here! ***
+                    # currently generates negative stat['ekin'] for some reason
     return
     
 
@@ -468,6 +470,7 @@ def _erode_rainfall_evolve_cuda_final(
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
     # *** Pending optimization ***
+    #    - no need to store the entire grid, just the edges
     
     # - define shared data structure -
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
@@ -571,6 +574,17 @@ def _erode_rainfall_evolve_cuda_sub(
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
     _device_normalize_stat(stat, z_res)
     stats_sarr[ti, tj] = stat
+    # do the edges too
+    for k in range(1, N_ADJ_P1):
+        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+            stats_temp = stats_sarr[
+                ti + ADJ_OFFSETS[k][0],
+                tj + ADJ_OFFSETS[k][1]]
+            stats_temp['aqua'] = min(stats_temp['aqua'] - evapor_rate, z_max)
+            _device_normalize_stat(stats_temp, z_res)
+            stats_sarr[
+                ti + ADJ_OFFSETS[k][0],
+                tj + ADJ_OFFSETS[k][1]] = stats_temp
     
     cuda.syncthreads()
 
