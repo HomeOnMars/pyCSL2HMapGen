@@ -74,7 +74,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'flow_eff': {
         '_TYPE': np.float32,
-        'value': np.float32(0.25),
+        'value': np.float32(1.0),
         '_DOC_': """Flow efficiency.
         .
             Should be in 0. < flow_eff <= 1.
