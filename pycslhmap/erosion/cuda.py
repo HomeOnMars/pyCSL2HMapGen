@@ -379,29 +379,44 @@ def _device_move_fluid(
 
     # - do things -
     if not h0:
+        # no water presents, cancel
         for k in range(N_ADJ_P1):
             d_stats_local[k] = zero_stat
     else:
-        # only do things if water presents
+        # only do things if water exists
         # d_hs_local will be init-ed
 
         # get how much fluid is moved to adjecent cells
         d_h_tot = float32(0.)
+        d_h_max = float32(0.)     # maximum weight difference in height
+        d_h_max_act = float32(0.) # actual maximum difference in height
         for k in range(1, N_ADJ_P1):
             zk, hk = _device_get_z_and_h(stats_local[k])
-            # d_h: fluid to be moved
-            #    0 <= d_h/flow_eff <= h0
-            d_h = max(min(z0 - zk, h0), float32(0.)) * flow_eff
-            d_h_tot += d_h
+            # d_h: weight of the fluid to be moved
+            #    since fluid speed at given h is propotional to sqrt(h),
+            #    the total water moved at given time span
+            #    towards a given direction should be prop to h**1.5
+            d_h = max(min(z0 - zk, h0), float32(0.))**1.5
             d_hs_local[k] = d_h
-        d_hs_local[0] = -d_h_tot
-        if d_h_tot > h0:
-            # shouldn't have happened, but just in case
-            d_h_fac = h0 / d_h_tot
+            d_h_tot += d_h
+            if d_h > d_h_max:
+                d_h_max = d_h
+                d_h_max_act = z0 - zk
+        if d_h_tot: # only do things if water can actually move
+            # translate weights back to height
+            d_h_fac = min(
+                # supposed ammount to be moved
+                d_h_tot**(-1./3.) * flow_eff,
+                # cannot give more than have
+                h0 / d_h_tot,
+                # stop when even the lowest neighbour is balanced
+                d_h_max_act / (d_h_tot + d_h_max),
+            )
+            d_h_tot *= d_h_fac
             for k in range(1, N_ADJ_P1):
                 d_hs_local[k] *= d_h_fac
-            d_h_tot = h0
-            d_hs_local[0] = -h0
+        
+        d_hs_local[0] = -d_h_tot
 
         # parse amount of fluid into amount of sedi, aqua, ekin
         if d_h_tot:
@@ -417,7 +432,11 @@ def _device_move_fluid(
                 d_stats_local[k]['soil'] = 0
                 d_stats_local[k]['sedi'] = d_hs_local[k] * d_se_fac
                 d_stats_local[k]['aqua'] = d_hs_local[k] * d_aq_fac
-                d_stats_local[k]['ekin'] = d_hs_local[k] / d_h_tot * d_ek_fac
+                d_stats_local[k]['ekin'] = (
+                    d_hs_local[k] / d_h_tot * stat['ekin'] * d_ek_fac
+                    # *** add gravitational energy gain here ***
+                    + 0.
+                )
     return
     
 
@@ -434,6 +453,7 @@ def _erode_rainfall_evolve_cuda_final(
     i_layer_read: int,     # in
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
+    # *** Pending optimization ***
     
     # - define shared data structure -
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
@@ -453,12 +473,13 @@ def _erode_rainfall_evolve_cuda_final(
             for n in range(d_stats_cuda.shape[-1]):
                 if edge['soil'] < 0:    # no boundary condition here
                     _device_add_stats(stat, d_stats_cuda[i, j, n])
-                # no changes at the boundary
+                # reset
                 d_stats_cuda[i, j, n] = zero_stat
             break
     # write back
     stats_cuda[i, j, i_layer_read] = stat
     
+
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
