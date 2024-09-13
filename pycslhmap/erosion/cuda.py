@@ -484,9 +484,11 @@ def _device_move_fluid(
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
         ek_tot_from_g = max(
             d_ek_fac_g * (ek_tot_from_g - d_h_tot**2),
-            # safety cap *** THIS MIGHT GIVE AWAY FREE ENERGY ***
+            # safety cap *** BELOW IS GIVING AWAY FREE ENERGY ***
+            # *** Fix this ***
             float32(0.),
         )
+        #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
 
         # calc changes from above
         for k in range(N_ADJ_P1):
