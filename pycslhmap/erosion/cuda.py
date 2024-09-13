@@ -404,7 +404,7 @@ def _device_move_fluid(
             #    since fluid speed at given h is propotional to sqrt(h),
             #    the total water moved at given time span
             #    towards a given direction should be prop to h**1.5
-            d_h_k = max(min(z0 - zk, h0), float32(0.))**1.5
+            d_h_k = max(min(z0 - zk, h0), float32(0.))**float32(1.5)
             d_hs_local[k] = d_h_k
             d_h_tot += d_h_k
             if d_h_k > d_h_max:
@@ -414,7 +414,7 @@ def _device_move_fluid(
             # translate weights back to height
             d_h_fac = min(
                 # supposed ammount to be moved
-                d_h_tot**(-1./3.) * flow_eff,
+                d_h_tot**float32(-1./3) / 2 * flow_eff,
                 # cannot give more than have
                 h0 / d_h_tot,
                 # stop when even the lowest neighbour is balanced
@@ -425,11 +425,12 @@ def _device_move_fluid(
                 d_h_k = d_hs_local[k]
                 if d_h_k:
                     zk, hk = _device_get_z_and_h(stats_local[k])
-                    d_h_k = min(d_h_k * d_h_fac, z0 - zk)    # safety cap
+                    # safety cap of (z0 - zk)/2, since cannot flow more
+                    #    even if not considering other cells
+                    d_h_k = min(d_h_k * d_h_fac, (z0 - zk)/2)
                     if d_h_k < z_res: d_h_k = float32(0.)
                     d_hs_local[k] = d_h_k
                     d_h_tot += d_h_k
-        
         d_hs_local[0] = -d_h_tot
 
         # parse amount of fluid into amount of sedi, aqua, ekin
@@ -441,8 +442,18 @@ def _device_move_fluid(
             d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
             # kinetic energy always flows fully away with current
             d_ek_fac_flow = flow_eff
-            d_ek_fac_g = (d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2.
+            d_ek_fac_g = (
+                d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
             
+            # kinetic energy gain from gravity
+            ek_tot_from_g = float32(0.)
+            for k in range(1, N_ADJ_P1):
+                ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
+            ek_tot_from_g = max(
+                d_ek_fac_g * (ek_tot_from_g - d_h_tot**2),
+                float32(0.))    # safety cap *** THIS MIGHT GIVE AWAY FREE ENERGY ***
+
+            # calc changes from above
             for k in range(N_ADJ_P1):
                 d_h_k = d_hs_local[k]
                 if d_h_k:
@@ -455,11 +466,9 @@ def _device_move_fluid(
                     #    gravitational energy per area per density of
                     #    g * (h1**2 - h0**2)  / 2.
                     if k:
-                        d_ek = d_ek_fac_g * d_h_k * max(
-                            2*(z0 - zk) - (d_h_k + d_h_tot),
-                            float32(0.))    # safety cap
-                        # kinetic energy flow
-                        d_ek += d_ek_fac_flow * d_h_k / d_h_tot * stat['ekin']
+                        d_ek = (
+                            ek_tot_from_g + d_ek_fac_flow * stat['ekin']
+                        ) * d_h_k / d_h_tot
                     else:
                         # kinetic energy flow only (no g gain)
                         # remove d_h_k / d_h_tot (which == -1.)
@@ -709,7 +718,6 @@ def _erode_rainfall_evolve_cuda(
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
         (nx_p2, ny_p2, 2), dtype=_ErosionStateDataDtype))
-    print(type(flow_eff))
     
     # - run -
     for s in range(n_step):
