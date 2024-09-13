@@ -381,7 +381,7 @@ def _device_move_fluid(
     """
 
     # - init -
-    d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)
+    d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
     
     stat = stats_local[0]
     z0, h0 = _device_get_z_and_h(stat)
@@ -448,6 +448,8 @@ def _device_move_fluid(
             # kinetic energy gain from gravity
             ek_tot_from_g = float32(0.)
             for k in range(1, N_ADJ_P1):
+                d_h_k = d_hs_local[k]
+                zk, hk = _device_get_z_and_h(stats_local[k])
                 ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
             ek_tot_from_g = max(
                 d_ek_fac_g * (ek_tot_from_g - d_h_tot**2),
@@ -457,7 +459,6 @@ def _device_move_fluid(
             for k in range(N_ADJ_P1):
                 d_h_k = d_hs_local[k]
                 if d_h_k:
-                    zk, hk = _device_get_z_and_h(stats_local[k])
                     #d_stats_local[k]['soil'] = 0
                     d_stats_local[k]['sedi'] = d_se_fac * d_h_k
                     d_stats_local[k]['aqua'] = d_aq_fac * d_h_k
