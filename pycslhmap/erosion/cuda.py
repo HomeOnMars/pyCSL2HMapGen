@@ -409,7 +409,7 @@ def _device_move_fluid(
         #    towards a given direction should be prop to h**1.5
         hw_k = (
             max(min(z0 - zk, h0), float32(0.))**float32(1.5)
-            if z0 - zk > z_res else float32(0.)
+            if z0 - zk >= z_res else float32(0.)
         )
         hws_local[k] = hw_k
         if hw_k:
@@ -430,6 +430,7 @@ def _device_move_fluid(
     for _ in range(n_flowable):
         
         # find the minimum height drop cell
+        k_min = 0  # index at minimum height
         d_z_min = d_z_max     # minimum height difference
         d_h_min = float32(0.) # amount of flowable water for this part
         hw_tot = float32(0.)
@@ -437,15 +438,22 @@ def _device_move_fluid(
         for k in range(1, N_ADJ_P1):
             hw_k = hws_local[k]
             if hw_k:
-                d_z = z0_now - zs_local[k] + d_hs_local[k]
-                if d_z < z_res:
-                    hws_local[k] = float32(0.)
-                else:
-                    hw_tot += hw_k    # re-calibrate
-                    if  d_z_min > d_z:
-                        d_z_min = d_z
-                        hw_at_k_min = hw_k
-                        d_h_min = min(d_z_min, h0 - d_h_tot)
+                d_z = z0_now - zs_local[k] - d_hs_local[k]
+                # hws_local: weight of the fluid to be moved
+                #    since fluid speed at given h is propotional to sqrt(h),
+                #    the total water moved at given time span
+                #    towards a given direction should be prop to h**1.5
+                hw_k = (
+                    max(min(d_z, h0 - d_h_tot), float32(0.))**float32(1.5)
+                    if d_z >= z_res else float32(0.)
+                )
+                hws_local[k] = hw_k
+                hw_tot += hw_k    # re-calibrate
+                if  d_z_min > d_z and d_z > 0:
+                    d_z_min = d_z
+                    k_min = k
+                    hw_at_k_min = hw_k
+                    d_h_min = min(d_z_min, h0 - d_h_tot)
                 
         # calc the flows for this part of the flow
         d_h_now = float32(0.)  # sum of d_h_now_k
@@ -460,6 +468,7 @@ def _device_move_fluid(
                 d_h_now += d_h_now_k
         z0_now -= d_h_now
         d_h_tot += d_h_now
+        hws_local[k_min] = float32(0.)
     #d_h_tot = z0 - z0_now
     d_hs_local[0] = -d_h_tot
     
