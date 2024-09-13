@@ -370,6 +370,7 @@ def _device_move_fluid(
     # in
     stats_local,
     zero_stat,
+    z_res: float32,
     flow_eff: float32,
     rho_soil_div_aqua: float32,
     g: float32,
@@ -419,17 +420,15 @@ def _device_move_fluid(
                 # stop when even the lowest neighbour is balanced
                 d_h_max_act / (d_h_tot + d_h_max),
             )
-            d_h_tot *= d_h_fac
+            d_h_tot = float32(0.)
             for k in range(1, N_ADJ_P1):
                 d_h_k = d_hs_local[k]
                 if d_h_k:
                     zk, hk = _device_get_z_and_h(stats_local[k])
-                    d_hs_local[k] = max(
-                        min(
-                            d_h_k * d_h_fac,
-                            z0 - zk,    # safety cap
-                        ), float32(0.)  # safety cap
-                    )
+                    d_h_k = min(d_h_k * d_h_fac, z0 - zk)    # safety cap
+                    if d_h_k < z_res: d_h_k = float32(0.)
+                    d_hs_local[k] = d_h_k
+                    d_h_tot += d_h_k
         
         d_hs_local[0] = -d_h_tot
 
@@ -455,17 +454,22 @@ def _device_move_fluid(
                     # Note: a column of fluid of height from h0 to h1 has
                     #    gravitational energy per area per density of
                     #    g * (h1**2 - h0**2)  / 2.
-                    d_ek = (
-                        d_ek_fac_g * d_h_k * max(
+                    if k:
+                        d_ek = d_ek_fac_g * d_h_k * max(
                             2*(z0 - zk) - (d_h_k + d_h_tot),
                             float32(0.))    # safety cap
-                        if k else float32(0.) # no g gain for the original cell
-                    )    # debug: should be all 0/positive...
-                    # kinetic energy flow
-                    d_ek += d_ek_fac_flow * d_h_k / d_h_tot * stat['ekin']
+                        # kinetic energy flow
+                        d_ek += d_ek_fac_flow * d_h_k / d_h_tot * stat['ekin']
+                    else:
+                        # kinetic energy flow only (no g gain)
+                        # remove d_h_k / d_h_tot (which == -1.)
+                        #    to avoid precision loss
+                        #    resulting in negative stat['ekin']
+                        d_ek = -d_ek_fac_flow * stat['ekin']
                     d_stats_local[k]['ekin'] = d_ek
                     # *** Fix kinetic energy here! ***
-                    # currently generates negative stat['ekin'] for some reason
+                    # currently generates single high point stat['ekin']
+                    # for some reason
     return
     
 
@@ -618,7 +622,7 @@ def _erode_rainfall_evolve_cuda_sub(
     # - move water -
     _device_move_fluid(
         d_stats_local,
-        stats_local, zero_stat,
+        stats_local, zero_stat, z_res,
         flow_eff, rho_soil_div_aqua, g,
     )
     
@@ -642,14 +646,15 @@ def _erode_rainfall_evolve_cuda_sub(
         # disgard changes and apply boundary conditions
         stat = edge
     # write back at edges
-    for k in range(1, N_ADJ_P1):
-        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
-            d_stats_cuda[
-                i + ADJ_OFFSETS[k][0],
-                j + ADJ_OFFSETS[k][1],
-                (k-1)//2
-            ] = d_stats_local[k]
-    if not is_at_edge:
+    if is_at_edge:
+        for k in range(1, N_ADJ_P1):
+            if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+                d_stats_cuda[
+                    i + ADJ_OFFSETS[k][0],
+                    j + ADJ_OFFSETS[k][1],
+                    (k-1)//2
+                ] = d_stats_local[k]
+    else:
         _device_normalize_stat(stat, z_res)
         # otherwise,
         #    wait for _erode_rainfall_evolve_cuda_final(...) for normalization
@@ -704,7 +709,8 @@ def _erode_rainfall_evolve_cuda(
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
         (nx_p2, ny_p2, 2), dtype=_ErosionStateDataDtype))
-
+    print(type(flow_eff))
+    
     # - run -
     for s in range(n_step):
         # *** add more sophisticated non-uniform rain code here! ***
