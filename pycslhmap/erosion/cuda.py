@@ -122,9 +122,11 @@ def _device_is_at_edge_k(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_read_sarr_with_edges(
-    in_arr,       # in
-    out_sarr,     # out
-    i, j, ti, tj, # in
+    # out
+    out_sarr,
+    # in
+    in_arr,
+    i, j, ti, tj,
 ):
     """Read data from global memory into shared array.
 
@@ -154,10 +156,12 @@ def _device_read_sarr_with_edges(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_init_sarr_with_edges(
-    init_value,   # in
-    out_sarr,     # out
-    nx_p2, ny_p2, # in
-    i, j, ti, tj, # in
+    # out
+    out_sarr,
+    # in
+    init_value,
+    nx_p2, ny_p2,
+    i, j, ti, tj,
 ):
     """Read data from global memory into shared array.
 
@@ -228,7 +232,7 @@ def _erode_rainfall_init_sub_cuda_sub(
 
     # - preload data -
     soil = soils_cuda[i, j]
-    _device_read_sarr_with_edges(zs_cuda, zs_sarr, i, j, ti, tj)
+    _device_read_sarr_with_edges(zs_sarr, zs_cuda, i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     cuda.syncthreads()
@@ -361,12 +365,14 @@ def _device_normalize_stat(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_move_fluid(
-    stats_local,        # in
-    d_stats_local,      # out
-    zero_stat,          # in
-    flow_eff: float32,  # in
-    rho_soil_div_aqua: float32,  # in
-    g: float32,         # in
+    # out
+    d_stats_local,
+    # in
+    stats_local,
+    zero_stat,
+    flow_eff: float32,
+    rho_soil_div_aqua: float32,
+    g: float32,
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
@@ -471,10 +477,13 @@ def _device_move_fluid(
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_final(
-    stats_cuda, d_stats_cuda,    # in/out
-    edges_cuda,            # in
-    i_layer_read: int,     # in
-    z_res: float32,        # in
+    # in/out
+    stats_cuda,
+    d_stats_cuda,
+    # in
+    edges_cuda,
+    i_layer_read: int,
+    z_res: float32,
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
     # *** Pending optimization ***
@@ -509,14 +518,16 @@ def _erode_rainfall_evolve_cuda_final(
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
-    stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,    # in/out
-    i_layer_read: int,     # in
-    z_max: float32,        # in
-    z_res: float32,        # in
-    evapor_rate : float32, # in
-    flow_eff    : float32, # in
-    rho_soil_div_aqua: float32,  # in
-    g: float32,            # in
+    # in/out
+    stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,
+    # in
+    i_layer_read: int,
+    z_max: float32,
+    z_res: float32,
+    evapor_rate : float32,
+    flow_eff    : float32,
+    rho_soil_div_aqua: float32,
+    g: float32,
 ):
     """Evolving 1 step.
 
@@ -566,14 +577,14 @@ def _erode_rainfall_evolve_cuda_sub(
     # - preload data -
     # load shared
     _device_read_sarr_with_edges(
-        stats_cuda[:, :, i_layer_read], stats_sarr, i, j, ti, tj)
+        stats_sarr, stats_cuda[:, :, i_layer_read], i, j, ti, tj)
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     # init shared temp
     for k in range(N_ADJ_P1):
         _device_init_sarr_with_edges(
-            zero_stat, d_stats_sarr[:, :, k],
-            nx_p2, ny_p2, i, j, ti, tj)
+            d_stats_sarr[:, :, k],
+            zero_stat, nx_p2, ny_p2, i, j, ti, tj)
     # load local
     stat = stats_sarr[ti, tj]
     edge = edges_cuda[ i,  j]
@@ -606,9 +617,9 @@ def _erode_rainfall_evolve_cuda_sub(
 
     # - move water -
     _device_move_fluid(
-        stats_local, d_stats_local,
-        zero_stat, flow_eff,
-        rho_soil_div_aqua, g,
+        d_stats_local,
+        stats_local, zero_stat,
+        flow_eff, rho_soil_div_aqua, g,
     )
     
     for k in range(N_ADJ_P1):
