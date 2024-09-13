@@ -318,8 +318,8 @@ def _erode_rainfall_init_sub_cuda(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_add_stats(
-    stat : _ErosionStateDataDtype,
-    stat_add: _ErosionStateDataDtype,
+    stat : _ErosionStateDataDtype,    # in/out
+    stat_add: _ErosionStateDataDtype, # in
 ):
     """Adding stat_add to stat."""
     stat['soil'] += stat_add['soil']
@@ -332,7 +332,7 @@ def _device_add_stats(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_get_z_and_h(
-    stat : _ErosionStateDataDtype,
+    stat : _ErosionStateDataDtype,  # in
 ) -> tuple[float32, float32]:
     """Get total height z and fluid height h from stat."""
     h = stat['sedi'] + stat['aqua']
@@ -342,8 +342,8 @@ def _device_get_z_and_h(
 
 @cuda.jit(device=True, fastmath=True)
 def _device_normalize_stat(
-    stat : _ErosionStateDataDtype,
-    z_res: float32,
+    stat : _ErosionStateDataDtype,  # in/out
+    z_res: float32,  # in
 ):
     """Normalize stat var.
     
@@ -393,15 +393,15 @@ def _device_move_fluid(
         d_h_max_act = float32(0.) # actual maximum difference in height
         for k in range(1, N_ADJ_P1):
             zk, hk = _device_get_z_and_h(stats_local[k])
-            # d_h: weight of the fluid to be moved
+            # d_h_k: weight of the fluid to be moved
             #    since fluid speed at given h is propotional to sqrt(h),
             #    the total water moved at given time span
             #    towards a given direction should be prop to h**1.5
-            d_h = max(min(z0 - zk, h0), float32(0.))**1.5
-            d_hs_local[k] = d_h
-            d_h_tot += d_h
-            if d_h > d_h_max:
-                d_h_max = d_h
+            d_h_k = max(min(z0 - zk, h0), float32(0.))**1.5
+            d_hs_local[k] = d_h_k
+            d_h_tot += d_h_k
+            if d_h_k > d_h_max:
+                d_h_max = d_h_k
                 d_h_max_act = z0 - zk
         if d_h_tot: # only do things if water can actually move
             # translate weights back to height
@@ -415,7 +415,15 @@ def _device_move_fluid(
             )
             d_h_tot *= d_h_fac
             for k in range(1, N_ADJ_P1):
-                d_hs_local[k] *= d_h_fac
+                d_h_k = d_hs_local[k]
+                if d_h_k:
+                    zk, hk = _device_get_z_and_h(stats_local[k])
+                    d_hs_local[k] = max(
+                        min(
+                            d_h_k * d_h_fac,
+                            z0 - zk,    # safety cap
+                        ), float32(0.)  # safety cap
+                    )
         
         d_hs_local[0] = -d_h_tot
 
@@ -431,24 +439,24 @@ def _device_move_fluid(
             d_ek_fac_g = (d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2.
             
             for k in range(N_ADJ_P1):
-                d_h = d_hs_local[k]
-                if d_h:
+                d_h_k = d_hs_local[k]
+                if d_h_k:
                     zk, hk = _device_get_z_and_h(stats_local[k])
                     #d_stats_local[k]['soil'] = 0
-                    d_stats_local[k]['sedi'] = d_se_fac * d_h
-                    d_stats_local[k]['aqua'] = d_aq_fac * d_h
+                    d_stats_local[k]['sedi'] = d_se_fac * d_h_k
+                    d_stats_local[k]['aqua'] = d_aq_fac * d_h_k
                     # gravitational energy gain
                     # Note: a column of fluid of height from h0 to h1 has
                     #    gravitational energy per area per density of
                     #    g * (h1**2 - h0**2)  / 2.
                     d_ek = (
-                        d_ek_fac_g * d_h * max(
-                            2*(z0 - zk) - (d_h + d_h_tot),
+                        d_ek_fac_g * d_h_k * max(
+                            2*(z0 - zk) - (d_h_k + d_h_tot),
                             float32(0.))    # safety cap
                         if k else float32(0.) # no g gain for the original cell
                     )    # debug: should be all 0/positive...
                     # kinetic energy flow
-                    d_ek += d_ek_fac_flow * d_h / d_h_tot * stat['ekin']
+                    d_ek += d_ek_fac_flow * d_h_k / d_h_tot * stat['ekin']
                     d_stats_local[k]['ekin'] = d_ek
                     # *** Fix kinetic energy here! ***
                     # currently generates negative stat['ekin'] for some reason
