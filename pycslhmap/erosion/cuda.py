@@ -68,6 +68,7 @@ N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
 # Adjacent cells location offsets
 #    matches _device_is_at_edge_k().
 #    Do NOT change the first 5 rows.
+#    Every even row and the next odd row must be polar opposite.
 ADJ_OFFSETS : tuple = (
     # i,  j
     ( 0,  0),
@@ -352,6 +353,8 @@ def _device_normalize_stat(
     """Normalize stat var.
     
     return sedi to soil if all water evaporated etc.
+
+    ---------------------------------------------------------------------------
     """
     if stat['aqua'] < z_res:
         # water all evaporated.
@@ -360,6 +363,47 @@ def _device_normalize_stat(
         stat['sedi'] = 0
         stat['ekin'] = 0
     return
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _device_get_d_hs(
+    # out
+    d_hs_local,
+    # in
+    h0: float32,
+    zs_local,
+    z_res: float32,
+    flow_eff: float32,
+) -> float32:
+    """Get fluid movements plan.
+
+    *   Note: Need to expand this if more rows are added to ADJ_OFFSETS!
+
+    Return: d_h_tot
+    
+    ---------------------------------------------------------------------------
+    """
+    z0 = zs_local[0]
+    d_h_tot = float32(0.)
+    k = 0
+    for ki in range(N_ADJ_P1//2):
+        d_h_k1 = z0 - zs_local[2*ki+1]
+        d_h_k2 = z0 - zs_local[2*ki+2]
+        if d_h_k1 > d_h_k2:
+            k = 2*ki+1
+            d_hs_local[2*ki+2] = float32(0.)
+        else:
+            k = 2*ki+2
+            d_hs_local[2*ki+1] = float32(0.)
+        zk = zs_local[k]
+        d_h_k = min((z0 - zk)/3*flow_eff, h0/2)
+        if d_h_k < z_res: d_h_k = float32(0.)
+        d_hs_local[k] = d_h_k
+        d_h_tot += d_h_k
+
+    d_hs_local[0] = -d_h_tot
+    return d_h_tot
 
 
 
@@ -395,30 +439,20 @@ def _device_move_fluid(
 
     if not h0:    # stop if no water
         return
-    
-    # init d_hs_local
-    for k in range(N_ADJ_P1):
-        d_hs_local[k] = float32(0.)
-        
-    # new movement logic (simplified)
-    # move the water to only the lowest adjacent cell
-    d_z_max = z_res    # maximum height difference
-    k_max = 0
+
+    # # init zs_local
     for k in range(1, N_ADJ_P1):
         zk, _ = _device_get_z_and_h(stats_local[k])
         zs_local[k] = zk
-        if z0 - zk > d_z_max:
-            d_z_max = z0 - zk
-            k_max = k
-    if k_max:    # can flow
-        d_h_k = min(d_z_max / 2, h0)
-        d_h_tot = d_h_k
-        d_hs_local[0]     = -d_h_tot
-        d_hs_local[k_max] =  d_h_k
+
+    # get d_hs_local
+    d_h_tot = _device_get_d_hs(
+        d_hs_local,  # out
+        h0, zs_local, z_res, flow_eff,   # in
+    )
 
     # parse amount of fluid into amount of sedi, aqua, ekin
-    if d_h_tot:
-        # only do things if something actually moved
+    if d_h_tot: # only do things if something actually moved
         
         # factions that flows away:
         d_se_fac = stat['sedi'] / h0
@@ -435,13 +469,8 @@ def _device_move_fluid(
             d_h_k = d_hs_local[k]
             zk = zs_local[k]
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
-        ek_tot_from_g = (#max(
-            d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)#,
-            # safety cap *** BELOW IS GIVING AWAY FREE ENERGY ***
-            # *** Fix this ***
-            #float32(0.),
-        )
-        if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
+        ek_tot_from_g = d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)
+        #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
 
         # calc changes from above
         for k in range(N_ADJ_P1):
@@ -465,9 +494,6 @@ def _device_move_fluid(
                     #    resulting in negative stat['ekin']
                     d_ek = -d_ek_fac_flow * stat['ekin']
                 d_stats_local[k]['ekin'] = d_ek
-                # *** Fix kinetic energy here! ***
-                # currently generates single high point stat['ekin']
-                # for some reason
     return
     
 
