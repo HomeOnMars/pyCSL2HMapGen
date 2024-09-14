@@ -402,7 +402,7 @@ def _device_move_fluid(
         
     # new movement logic (simplified)
     # move the water to only the lowest adjacent cell
-    d_z_max = z_res     # maximum height difference
+    d_z_max = z_res    # maximum height difference
     k_max = 0
     for k in range(1, N_ADJ_P1):
         zk, _ = _device_get_z_and_h(stats_local[k])
@@ -411,10 +411,10 @@ def _device_move_fluid(
             d_z_max = z0 - zk
             k_max = k
     if k_max:    # can flow
-        d_h_k = min(d_z_max, h0)
-        d_h_tot = d_h_k / 2
+        d_h_k = min(d_z_max / 2, h0)
+        d_h_tot = d_h_k
         d_hs_local[0]     = -d_h_tot
-        d_hs_local[k_max] =  d_h_tot
+        d_hs_local[k_max] =  d_h_k
 
     # parse amount of fluid into amount of sedi, aqua, ekin
     if d_h_tot:
@@ -423,8 +423,9 @@ def _device_move_fluid(
         # factions that flows away:
         d_se_fac = stat['sedi'] / h0
         d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
-        # kinetic energy always flows fully away with current
-        d_ek_fac_flow = flow_eff
+        # # kinetic energy always flows fully away with current
+        # d_ek_fac_flow = flow_eff
+        d_ek_fac_flow = d_h_tot / h0
         d_ek_fac_g = (
             d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
         
