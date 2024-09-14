@@ -13,7 +13,7 @@ from typing import Self
 import random
 
 # imports (3rd party)
-from numba import jit, prange
+from numba import jit, prange, cuda
 import numpy as np
 from numpy import typing as npt
 
@@ -30,6 +30,171 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 #-----------------------------------------------------------------------------#
 #    Erosion: Rainfall (Abandoned codes)
 #-----------------------------------------------------------------------------#
+
+
+# with complex moving mechanic that fails
+@cuda.jit(device=True, fastmath=True)
+def _device_move_fluid(
+    # out
+    d_stats_local,
+    # in
+    stats_local,
+    zero_stat,
+    z_res: float32,
+    flow_eff: float32,
+    rho_soil_div_aqua: float32,
+    g: float32,
+):
+    """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
+
+    Init and save the changes to d_stats_local.
+    """
+
+    # - init -
+    d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
+    hws_local  = cuda.local.array(N_ADJ_P1, dtype=float32)  # weights of amount
+    zs_local   = cuda.local.array(N_ADJ_P1, dtype=float32)  # z
+    
+    stat = stats_local[0]
+    z0, h0 = _device_get_z_and_h(stat)
+    zs_local[0] = z0
+    hws_local[0] = 0
+
+    for k in range(N_ADJ_P1):
+        d_stats_local[k] = zero_stat
+
+    if not h0:    # stop if no water
+        return
+
+    # - flow weights -
+    # init zs_local and hws_local
+    n_flowable = 0
+    d_z_max = float32(0.)     # maximum height difference
+    for k in range(1, N_ADJ_P1):
+        zk, _ = _device_get_z_and_h(stats_local[k])
+        zs_local[k] = zk
+        # hws_local: weight of the fluid to be moved
+        #    since fluid speed at given h is propotional to sqrt(h),
+        #    the total water moved at given time span
+        #    towards a given direction should be prop to h**1.5
+        hw_k = (
+            max(min(z0 - zk, h0), float32(0.))**float32(1.5)
+            if z0 - zk >= z_res else float32(0.)
+        )
+        hws_local[k] = hw_k
+        if hw_k:
+            n_flowable += 1
+            d_z_max = max(d_z_max, z0 - zk)
+            
+    if not n_flowable:    # stop if nothing can actually move
+        return
+        
+    # init d_hs_local
+    for k in range(N_ADJ_P1):
+        d_hs_local[k] = float32(0.)
+
+    # get d_hs_local
+    #    i.e. how much fluid is flowing to adjacent cells
+    z0_now = z0    # tmp storage of the height for parts of flowable fluids
+    d_h_tot = float32(0.)
+    for _ in range(n_flowable):
+        
+        # find the minimum height drop cell
+        k_min = 0  # index at minimum height
+        d_z_min = d_z_max     # minimum height difference
+        d_h_min = float32(0.) # amount of flowable water for this part
+        hw_tot = float32(0.)
+        hw_at_k_min = float32(0.)
+        for k in range(1, N_ADJ_P1):
+            hw_k = hws_local[k]
+            if hw_k:
+                d_z = z0_now - zs_local[k] - d_hs_local[k]
+                # hws_local: weight of the fluid to be moved
+                #    since fluid speed at given h is propotional to sqrt(h),
+                #    the total water moved at given time span
+                #    towards a given direction should be prop to h**1.5
+                hw_k = (
+                    max(min(d_z, h0 - d_h_tot), float32(0.))**float32(1.5)
+                    if d_z >= z_res else float32(0.)
+                )
+                hws_local[k] = hw_k
+                hw_tot += hw_k    # re-calibrate
+                if  d_z_min > d_z and d_z > 0:
+                    d_z_min = d_z
+                    k_min = k
+                    hw_at_k_min = hw_k
+                    d_h_min = min(d_z_min, h0 - d_h_tot)
+                
+        # calc the flows for this part of the flow
+        d_h_now = float32(0.)  # sum of d_h_now_k
+        hw_fac  = hw_tot + hw_at_k_min
+        if not hw_fac: break  # safety check
+        for k in range(1, N_ADJ_P1):
+            hw_k = hws_local[k]
+            if hw_k:    # actually can flow to
+                d_h_now_k = d_h_min * hw_k / hw_fac * flow_eff
+                if d_h_now_k < z_res: d_h_now_k = float32(0.)
+                d_hs_local[k] += d_h_now_k
+                d_h_now += d_h_now_k
+        z0_now -= d_h_now
+        d_h_tot += d_h_now
+        hws_local[k_min] = float32(0.)
+    #d_h_tot = z0 - z0_now
+    d_hs_local[0] = -d_h_tot
+    
+
+    # parse amount of fluid into amount of sedi, aqua, ekin
+    if d_h_tot:
+        # only do things if something actually moved
+        
+        # factions that flows away:
+        d_se_fac = stat['sedi'] / h0
+        d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
+        # kinetic energy always flows fully away with current
+        d_ek_fac_flow = flow_eff
+        d_ek_fac_g = (
+            d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
+        
+        # kinetic energy gain from gravity
+        ek_tot_from_g = float32(0.)
+        for k in range(1, N_ADJ_P1):
+            d_h_k = d_hs_local[k]
+            zk = zs_local[k]
+            ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
+        ek_tot_from_g = max(
+            d_ek_fac_g * (ek_tot_from_g - d_h_tot**2),
+            # safety cap *** BELOW IS GIVING AWAY FREE ENERGY ***
+            # *** Fix this ***
+            float32(0.),
+        )
+        #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
+
+        # calc changes from above
+        for k in range(N_ADJ_P1):
+            d_h_k = d_hs_local[k]
+            if d_h_k:
+                #d_stats_local[k]['soil'] = 0
+                d_stats_local[k]['sedi'] = d_se_fac * d_h_k
+                d_stats_local[k]['aqua'] = d_aq_fac * d_h_k
+                # gravitational energy gain
+                # Note: a column of fluid of height from h0 to h1 has
+                #    gravitational energy per area per density of
+                #    g * (h1**2 - h0**2)  / 2.
+                if k:
+                    d_ek = (
+                        ek_tot_from_g + d_ek_fac_flow * stat['ekin']
+                    ) * d_h_k / d_h_tot
+                else:
+                    # kinetic energy flow only (no g gain)
+                    # remove d_h_k / d_h_tot (which == -1.)
+                    #    to avoid precision loss
+                    #    resulting in negative stat['ekin']
+                    d_ek = -d_ek_fac_flow * stat['ekin']
+                d_stats_local[k]['ekin'] = d_ek
+                # *** Fix kinetic energy here! ***
+                # currently generates single high point stat['ekin']
+                # for some reason
+    return
 
 
 
