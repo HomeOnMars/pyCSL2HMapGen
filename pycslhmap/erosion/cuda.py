@@ -418,7 +418,9 @@ def _device_move_fluid(
             
     if not n_flowable:    # stop if nothing can actually move
         return
-        
+
+
+    
     # init d_hs_local
     for k in range(N_ADJ_P1):
         d_hs_local[k] = float32(0.)
@@ -471,7 +473,29 @@ def _device_move_fluid(
         hws_local[k_min] = float32(0.)
     #d_h_tot = z0 - z0_now
     d_hs_local[0] = -d_h_tot
+
+
     
+    # init d_hs_local
+    for k in range(N_ADJ_P1):
+        d_hs_local[k] = float32(0.)
+        
+    # new movement logic (simplified)
+    # move the water to only the lowest adjacent cell
+    d_z_max = z_res     # maximum height difference
+    k_max = 0
+    for k in range(1, N_ADJ_P1):
+        zk, _ = _device_get_z_and_h(stats_local[k])
+        zs_local[k] = zk
+        if z0 - zk > d_z_max:
+            d_z_max = z0 - zk
+            k_max = k
+    if k_max:    # can flow
+        d_h_k = min(d_z_max, h0)
+        d_h_tot = d_h_k / 2
+        d_hs_local[0]     = -d_h_tot
+        d_hs_local[k_max] =  d_h_tot
+            
 
     # parse amount of fluid into amount of sedi, aqua, ekin
     if d_h_tot:
