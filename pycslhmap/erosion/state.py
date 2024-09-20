@@ -39,6 +39,7 @@ from ..util import (
 from .defaults import (
     DEFAULT_PARS,
     _ErosionStateDataDtype, ErosionStateDataType,
+    _ErosionStateDataExtendedDtype, ErosionStateDataExtendedType,
     ParsValueType, ParsType,
 )
 from .cuda import (
@@ -119,6 +120,8 @@ class ErosionState(HMap):
             _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
+        # extended info on stats
+        self.__stats_ext: None|ErosionStateDataExtendedType = None
 
 
         # do things
@@ -171,8 +174,42 @@ class ErosionState(HMap):
     @property
     def _shape_stats_calc(self) -> tuple[int, int]:
         return _shape_add_two(self.npix_xy)
-        
 
+    @property
+    def stats_data(self) -> ErosionStateDataExtendedType:
+        """Return the center part of the self.stats"""
+        return self.stats[1:-1, 1:-1]
+
+    @property
+    def stats_ext(self) -> ErosionStateDataExtendedType:
+        """Calculate the extended data of self.stats"""
+        # init
+        if (
+            self.__stats_ext is None
+            or self.__stats_ext.shape != self.shape_stats
+        ):
+            self.__stats_ext = np.empty(
+                self.shape_stats, dtype=_ErosionStateDataExtendedDtype)
+        # re-calc
+        self.__stats_ext['h'] = self.stats['sedi'] + self.stats['aqua']
+        self.__stats_ext['z'] = self.__stats_ext['h'] + self.stats['soil']
+        self.__stats_ext['m'] = (
+            self.get_par('rho_soil_div_aqua') * self.stats['sedi']
+            + self.stats['aqua'])
+        self.__stats_ext['v'] = 0
+        mask_has_water = self.stats['aqua'] > 0
+        self.__stats_ext['v'][mask_has_water] = (
+            2 * self.stats['ekin'][mask_has_water]
+            / self.__stats_ext['m'][mask_has_water])**0.5
+        return self.__stats_ext
+
+    @property
+    def stats_ext_data(self) -> ErosionStateDataExtendedType:
+        """Return the center part of the self.stats_ext"""
+        return self.stats_ext[1:-1, 1:-1]
+        
+    
+    
     def normalize(
         self, overwrite: bool = False, verbose: VerboseType = True,
     ) -> Self:

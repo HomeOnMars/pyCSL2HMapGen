@@ -36,8 +36,12 @@ ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
 
 _ErosionStateDataExtendedDtype : np.dtype = np.dtype([
     # note: nan will be noted as -1. in below fields
-    ('z'   , np.float32),    # [positive] total height (z = soil + sedi + aqua)
-    ('h'   , np.float32),    # [positive] fluid height (h =        sedi + aqua)
+    # per rhoS means [per water density rho per pixel area S]
+    ('z'   , np.float32),   # [positive] total height (z = soil + sedi + aqua)
+    ('h'   , np.float32),   # [positive] fluid height (h =        sedi + aqua)
+    ('m'   , np.float32),   # [positive] fluid mass per rhoS
+                            #            (m = rho_soil_div_aqua * sedi + aqua)
+    ('v'   , np.float32),   # [positive] fluid speed
 ])
 ErosionStateDataExtendedType = npt.NDArray[_ErosionStateDataExtendedDtype]
 
