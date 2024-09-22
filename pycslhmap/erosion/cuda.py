@@ -62,6 +62,7 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 # Example see
 # https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
 # 4 <= CUDA_TPB <= 32
+# CUDA_TPB_X should be a factor of 32 because CUDA GPUs has wrap size of 32
 CUDA_TPB_X : int = 16
 CUDA_TPB_Y : int = 16
 
@@ -96,7 +97,7 @@ def get_cuda_bpg_tpb(nx, ny) -> tuple[tuple[int, int], tuple[int, int]]:
     tpb: threads per block
     bpg: blocks per grid
     """
-    cuda_tpb = (int(CUDA_TPB_X), int(CUDA_TPB_Y))
+    cuda_tpb = (CUDA_TPB_X, CUDA_TPB_Y)
     cuda_bpg = (
         # -2 because we are not using the edge of the block
         (nx-2 + cuda_tpb[0]-2 - 1) // (cuda_tpb[0]-2),
@@ -579,17 +580,15 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - define shared data structure -
     # (shared by the threads in the same block)
-    # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
-    stats_sarr = cuda.shared.array(
+
+    # stats_temp: stats (at the beginning) or d_stats (at the end)
+    # d_stats: 5 elems **for** this [i, j] location **from** adjacent locations
+    #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
+    stats_temp_sarr = cuda.shared.array(
         shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=_ErosionStateDataDtype)
 
-    # 5 elems **for** this [i, j] location **from** adjacent locations:
-    #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
-    d_stats_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_X, CUDA_TPB_Y, N_ADJ_P1),
-        dtype=_ErosionStateDataDtype)
     # for init
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
     zero_stat = zero_stat_cuda[0]
@@ -606,27 +605,23 @@ def _erode_rainfall_evolve_cuda_sub(
         return
 
     # - preload data -
-    # load shared
-    stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
-    # init shared temp
-    for k in range(N_ADJ_P1):
-        d_stats_sarr[ti, tj, k] = zero_stat
-    # load local
-    stat = stats_sarr[ti, tj]
-    edge = edges_cuda[ i,  j]
+    stat = stats_cuda[i, j, i_layer_read]
+    edge = edges_cuda[i, j]
+    not_at_outer_edge : bool_ = not _is_at_outer_edge_cudev(
+        nx, ny, i, j, ti, tj)
     
     # - rain & evaporate -
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
     stat = _normalize_stat_cudev(stat, edge, z_res)
-    stats_sarr[ti, tj] = stat
+    stats_temp_sarr[ti, tj] = stat
     
     cuda.syncthreads()
 
-    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+    if not_at_outer_edge:
         # load local
         for k in range(N_ADJ_P1):
-            stats_local[k] = stats_sarr[
+            stats_local[k] = stats_temp_sarr[
                 ti + ADJ_OFFSETS[k][0],
                 tj + ADJ_OFFSETS[k][1]]
 
@@ -636,24 +631,25 @@ def _erode_rainfall_evolve_cuda_sub(
             stats_local, zero_stat, z_res,
             flow_eff, rho_soil_div_aqua, g,
         )
-    
-        for k in range(N_ADJ_P1):
-            d_stats_sarr[
-                ti + ADJ_OFFSETS[k][0],
-                tj + ADJ_OFFSETS[k][1],
-                k
-            ] = d_stats_local[k]
-        
-        # *** Add code here! ***
 
     cuda.syncthreads()
     
     # - write data back -
     # summarize
     for k in range(N_ADJ_P1):
-        # could use optimization
-        stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
-    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+        if not_at_outer_edge:
+            stats_temp_sarr[ti, tj] = d_stats_local[k]
+        else:
+            stats_temp_sarr[ti, tj] = zero_stat
+        cuda.syncthreads()
+        if not_at_outer_edge:
+            stat = _add_stats_cudev(
+                stat, stats_temp_sarr[
+                    ti - ADJ_OFFSETS[k][0],
+                    tj - ADJ_OFFSETS[k][1]
+                ], edge)
+        
+    if not_at_outer_edge:
         stat = _normalize_stat_cudev(stat, edge, z_res)
     else:
         # otherwise,
@@ -668,7 +664,7 @@ def _erode_rainfall_evolve_cuda_sub(
             ] = d_stats_local[k]
 
     # write back
-    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+    if not_at_outer_edge:
         stats_cuda[i, j, i_layer_write] = stat
     
 
