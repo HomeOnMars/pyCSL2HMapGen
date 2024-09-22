@@ -579,7 +579,7 @@ def _erode_rainfall_evolve_cuda_final(
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
     # in/out
-    stats_cuda, edges_cuda, flags_cuda, d_stats_cuda,
+    stats_cuda, edges_cuda, d_stats_cuda,
     # in
     i_layer_read: int,
     z_max: float32,
@@ -593,11 +593,8 @@ def _erode_rainfall_evolve_cuda_sub(
 
     stats_cuda: (nx_p2, ny_p2, 2)-shaped
     edges_cuda: (nx_p2, ny_p2)-shaped
-    flags_cuda: (1,)-shaped
     d_stats_cuda: (nx_p2, ny_p2, 2)-shaped
     
-    flags_cuda:
-        0: Completed without error?
     z_max:
         z_min is assumed to be zero.
     ---------------------------------------------------------------------------
@@ -721,7 +718,6 @@ def _erode_rainfall_evolve_cuda(
     n_step: int,
     stats : ErosionStateDataType,
     edges : ErosionStateDataType,
-    npix_xy: tuple[int, int],
     z_max: np.float32,
     z_res: np.float32,
     evapor_rate: np.float32,
@@ -742,8 +738,7 @@ def _erode_rainfall_evolve_cuda(
     """
 
     # - init cuda -
-    npix_x, npix_y = npix_xy
-    nx_p2, ny_p2 = stats.shape
+    nx, ny = stats.shape
     cuda_bpg, cuda_tpb = get_cuda_bpg_tpb(nx, ny)
 
     # add 2 layers of stats: one for reading, one for writing
@@ -751,19 +746,17 @@ def _erode_rainfall_evolve_cuda(
     stats_cuda = cuda.to_device(np.stack((stats, stats), axis=-1))
     i_layer_read: int = 0    # 0 or 1; the other one is for writing 
     edges_cuda = cuda.to_device(edges)
-    # for flags_cuda def, see _erode_rainfall_evolve_cuda_sub doc string.
-    flags_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
     # d_stats_cuda: for caching tempeorary results from the edges
     # last dim has 2 elems, for i and j direction
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
-        (nx_p2, ny_p2, 2), dtype=_ErosionStateDataDtype))
+        (nx, ny, 2), dtype=_ErosionStateDataDtype))
     
     # - run -
     for s in range(n_step):
         # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
-            stats_cuda, edges_cuda, flags_cuda, d_stats_cuda, i_layer_read,
+            stats_cuda, edges_cuda, d_stats_cuda, i_layer_read,
             z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua, g,
         )
         cuda.synchronize()
