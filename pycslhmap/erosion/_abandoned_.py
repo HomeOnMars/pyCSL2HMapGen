@@ -32,6 +32,60 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 #-----------------------------------------------------------------------------#
 
 
+
+@jit(nopython=True, fastmath=True, parallel=True)
+def _erode_rainfall_get_capas_cuda(
+    zs   : npt.NDArray[np.float32],
+    aquas: npt.NDArray[np.float32],
+    ekins: npt.NDArray[np.float32],
+    pix_widxy: tuple[float, float],
+    sed_cap_fac: float = 1.0,
+    v_cap: float = 16.,
+) -> npt.NDArray[np.float32]:
+    """Get sediment capacity.
+
+    Parameters
+    ----------
+    ...
+    sed_cap_fac : float
+        Sediment capacity factor of the river.
+        Limits the maximum of the sediemnt capacity.
+        
+    v_cap: float
+        Characteristic velocity for sediment capacity calculations, in m/s.
+        Used to regulate the velocity in capas calc,
+        So its influence flatten out when v is high.
+        
+    ---------------------------------------------------------------------------
+    """
+
+    raise NotImplementedError("Cuda version of this func not yet complete.")
+    
+    npix_x, npix_y = zs.shape[0]-2, zs.shape[1]-2
+    pix_wid_x, pix_wid_y = pix_widxy
+
+    capas = np.zeros_like(zs)
+    
+    for i in prange(1, npix_x+1):
+        for j in prange(1, npix_y+1):
+            aq = aquas[i, j]
+            if aq:
+                z  = zs[i, j]
+                ek = ekins[i, j]
+                # average velocity (regulated to 0. < slope < 1.)
+                v_avg = (6.*ek/aq)**0.5/2.
+                v_fac = np.sin(np.atan(v_avg/v_cap))
+                # get slope (but regulated to 0. < slope < 1.)
+                dz_dx = (zs[i+1, j] - zs[i-1, j]) / (pix_wid_x*2)
+                dz_dy = (zs[i, j+1] - zs[i, j-1]) / (pix_wid_y*2)
+                slope = np.sin(np.atan((dz_dx**2 + dz_dy**2)**0.5))
+                
+                capas[i, j] = sed_cap_fac * aq * v_fac * slope
+
+    return capas
+
+
+
 # with complex moving mechanic that fails
 @cuda.jit(device=True, fastmath=True)
 def _device_move_fluid(

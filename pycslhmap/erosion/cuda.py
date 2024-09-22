@@ -60,9 +60,8 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 # The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
 # Example see
 # https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
-# 2 <= CUDA_TPB <= 32
+# 4 <= CUDA_TPB <= 32
 CUDA_TPB : int = 16
-CUDA_TPB_P2: int = CUDA_TPB+2
 
 N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
 # Adjacent cells location offsets
@@ -83,6 +82,27 @@ _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
 
 
 #-----------------------------------------------------------------------------#
+#    Functions: Cuda managements
+#-----------------------------------------------------------------------------#
+
+
+def get_cuda_bpg_tpb(nx, ny) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Return Cuda thread/block configurations.
+
+    tpb: threads per block
+    bpg: blocks per grid
+    """
+    cuda_tpb = (int(CUDA_TPB), int(CUDA_TPB))
+    cuda_bpg = (
+        # -2 because we are not using the edge of the block
+        (nx-2 + cuda_tpb_shape[0]-2 - 1) // (cuda_tpb_shape[0]-2),
+        (ny-2 + cuda_tpb_shape[1]-2 - 1) // (cuda_tpb_shape[1]-2),
+    )
+    return cuda_bpg, cuda_tpb
+
+
+
+#-----------------------------------------------------------------------------#
 #    Device Functions: Memory
 #-----------------------------------------------------------------------------#
 
@@ -90,34 +110,42 @@ _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
 @cuda.jit(device=True, fastmath=True)
 def _device_get_coord() -> tuple[int, int, int, int]:
     # - get thread coordinates -
-    i, j = cuda.grid(2)
-    # add 1 to account for the edges in the data
-    i += 1; j += 1
-    # add 1 to account for the edges in the data
-    ti = cuda.threadIdx.x + 1
-    tj = cuda.threadIdx.y + 1
+    # blockDim-2 because we are only calculating in the center of the block
+    i = cuda.threadIdx.x + cuda.blockIdx.x * (cuda.blockDim.x-2)
+    j = cuda.threadIdx.y + cuda.blockIdx.y * (cuda.blockDim.y-2)
+    ti = cuda.threadIdx.x
+    tj = cuda.threadIdx.y
     return i, j, ti, tj
 
 
 
 @cuda.jit(device=True, fastmath=True)
 def _device_is_at_edge_k(
-    k, nx_p2, ny_p2,    # in
-    i, j, ti, tj,       # in
+    k, nx, ny,     # in
+    i, j, ti, tj,  # in
 ) -> bool:
     """Test if it is at k-th edge.
 
     k-th edge matches ADJ_OFFSETS constant.
     """
-    if   k == 1 and ti == 1:
+    if   k == 1 and ti == 0:
         return True
-    elif k == 2 and (ti == CUDA_TPB or i+2 == nx_p2):
+    elif k == 2 and (ti == CUDA_TPB-1 or i+1 == nx):
         return True
-    elif k == 3 and tj == 1:
+    elif k == 3 and tj == 0:
         return True
-    elif k == 4 and (tj == CUDA_TPB or j+2 == ny_p2):
+    elif k == 4 and (tj == CUDA_TPB-1 or j+1 == ny):
         return True
     return False
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _device_is_outside_map(
+    nx, ny, i, j, # in
+) -> bool:
+    """Test if the cell is outside the map."""
+    return True if i >= nx or j >= ny else False
 
 
 
@@ -141,17 +169,8 @@ def _device_read_sarr_with_edges(
     ---------------------------------------------------------------------------
     """
     # nx_p2 means n pixel at x direction plus 2
-    nx_p2, ny_p2 = in_arr.shape
+    nx, ny_p2 = in_arr.shape
     out_sarr[ti, tj] = in_arr[i, j]
-    # load edges
-    if ti == 1:
-        out_sarr[ti-1, tj] = in_arr[i-1, j]
-    if ti == CUDA_TPB or i+2 == nx_p2:
-        out_sarr[ti+1, tj] = in_arr[i+1, j]
-    if tj == 1:
-        out_sarr[ti, tj-1] = in_arr[i, j-1]
-    if tj == CUDA_TPB or j+2 == ny_p2:
-        out_sarr[ti, tj+1] = in_arr[i, j+1]
     return
 
 
@@ -213,14 +232,15 @@ def _erode_rainfall_init_sub_cuda_sub(
     # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
-    zs_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=float32)
+    zs_sarr = cuda.shared.array(shape=(CUDA_TPB, CUDA_TPB), dtype=float32)
     # flags_cuda:
     #    0: has_changes_in_this_thread_block
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # - get thread coordinates -
     nx_p2, ny_p2 = zs_cuda.shape
+    i, j , ti, tj = _device_get_coord()
+    
     i, j = cuda.grid(2)
     # add 1 to account for the edges in the data
     i += 1; j += 1
@@ -284,14 +304,9 @@ def _erode_rainfall_init_sub_cuda(
     """
 
     # - init cuda -
-    npix_x, npix_y = soils.shape[0]-2, soils.shape[1]-2
+    nx, ny = soils.shape
+    cuda_bpg, cuda_tpb = get_cuda_bpg_tpb(nx, ny)
     # tpb: threads per block
-    cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
-    # bpg: blocks per grid
-    cuda_bpg_shape = (
-        (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
-        (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
-    )
 
     # - fill basins -
     # (lakes / sea / whatev)
@@ -306,7 +321,7 @@ def _erode_rainfall_init_sub_cuda(
     while is_changed_cuda[0]:
         is_changed_cuda[0] = False
         n_cycles += 1
-        _erode_rainfall_init_sub_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
+        _erode_rainfall_init_sub_cuda_sub[cuda_bpg, cuda_tpb](
                 zs_cuda, soils_cuda, is_changed_cuda)
         cuda.synchronize()
 
@@ -579,13 +594,13 @@ def _erode_rainfall_evolve_cuda_sub(
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_P2, CUDA_TPB_P2), dtype=_ErosionStateDataDtype)
+        shape=(CUDA_TPB, CUDA_TPB), dtype=_ErosionStateDataDtype)
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # 5 elems **for** this [i, j] location **from** adjacent locations:
     #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
     d_stats_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_P2, CUDA_TPB_P2, N_ADJ_P1),
+        shape=(CUDA_TPB, CUDA_TPB, N_ADJ_P1),
         dtype=_ErosionStateDataDtype)
     # for init
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
@@ -715,13 +730,7 @@ def _erode_rainfall_evolve_cuda(
     # - init cuda -
     npix_x, npix_y = npix_xy
     nx_p2, ny_p2 = stats.shape
-    # tpb: threads per block
-    cuda_tpb_shape = (int(CUDA_TPB), int(CUDA_TPB))
-    # bpg: blocks per grid
-    cuda_bpg_shape = (
-        (npix_x + cuda_tpb_shape[0] - 1) // cuda_tpb_shape[0],
-        (npix_y + cuda_tpb_shape[1] - 1) // cuda_tpb_shape[1],
-    )
+    cuda_bpg, cuda_tpb = get_cuda_bpg_tpb(nx, ny)
 
     # add 2 layers of stats: one for reading, one for writing
     # (to avoid interdependence between threads)
@@ -739,14 +748,14 @@ def _erode_rainfall_evolve_cuda(
     # - run -
     for s in range(n_step):
         # *** add more sophisticated non-uniform rain code here! ***
-        _erode_rainfall_evolve_cuda_sub[cuda_bpg_shape, cuda_tpb_shape](
+        _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
             stats_cuda, edges_cuda, flags_cuda, d_stats_cuda, i_layer_read,
             z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua, g,
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read
         # add back edges
-        _erode_rainfall_evolve_cuda_final[cuda_bpg_shape, cuda_tpb_shape](
+        _erode_rainfall_evolve_cuda_final[cuda_bpg, cuda_tpb](
             stats_cuda, d_stats_cuda, edges_cuda, i_layer_read, z_res,
         )
         cuda.synchronize()
@@ -755,64 +764,6 @@ def _erode_rainfall_evolve_cuda(
     stats = stats_cuda[:, :, i_layer_read].copy_to_host()
     print("WARNING: *** Cuda version of this func not yet complete. ***")
     return stats
-
-
-
-#-----------------------------------------------------------------------------#
-#    Erosion: Rainfall: drafts
-#-----------------------------------------------------------------------------#
-
-
-@jit(nopython=True, fastmath=True, parallel=True)
-def _erode_rainfall_get_capas_cuda(
-    zs   : npt.NDArray[np.float32],
-    aquas: npt.NDArray[np.float32],
-    ekins: npt.NDArray[np.float32],
-    pix_widxy: tuple[float, float],
-    sed_cap_fac: float = 1.0,
-    v_cap: float = 16.,
-) -> npt.NDArray[np.float32]:
-    """Get sediment capacity.
-
-    Parameters
-    ----------
-    ...
-    sed_cap_fac : float
-        Sediment capacity factor of the river.
-        Limits the maximum of the sediemnt capacity.
-        
-    v_cap: float
-        Characteristic velocity for sediment capacity calculations, in m/s.
-        Used to regulate the velocity in capas calc,
-        So its influence flatten out when v is high.
-        
-    ---------------------------------------------------------------------------
-    """
-
-    raise NotImplementedError("Cuda version of this func not yet complete.")
-    
-    npix_x, npix_y = zs.shape[0]-2, zs.shape[1]-2
-    pix_wid_x, pix_wid_y = pix_widxy
-
-    capas = np.zeros_like(zs)
-    
-    for i in prange(1, npix_x+1):
-        for j in prange(1, npix_y+1):
-            aq = aquas[i, j]
-            if aq:
-                z  = zs[i, j]
-                ek = ekins[i, j]
-                # average velocity (regulated to 0. < slope < 1.)
-                v_avg = (6.*ek/aq)**0.5/2.
-                v_fac = np.sin(np.atan(v_avg/v_cap))
-                # get slope (but regulated to 0. < slope < 1.)
-                dz_dx = (zs[i+1, j] - zs[i-1, j]) / (pix_wid_x*2)
-                dz_dy = (zs[i, j+1] - zs[i, j-1]) / (pix_wid_y*2)
-                slope = np.sin(np.atan((dz_dx**2 + dz_dy**2)**0.5))
-                
-                capas[i, j] = sed_cap_fac * aq * v_fac * slope
-
-    return capas
 
 
 
