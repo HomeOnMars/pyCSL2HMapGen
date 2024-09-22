@@ -329,12 +329,21 @@ class ErosionState(HMap):
                     0.,
                 ),
             )
+
+        edges_zs = np.zeros_like(self.edges['soil'])
+        mask_soil = self.edges['soil'] >= 0
+        edges_zs[mask_soil] += self.edges['soil'][mask_soil]
+        mask_sedi = self.edges['sedi'] >= 0
+        edges_zs[mask_sedi] += self.edges['sedi'][mask_sedi]
+        mask_aqua = self.edges['aqua'] >= 0
+        edges_zs[mask_aqua] += self.edges['aqua'][mask_aqua]
+        mask_any = mask_soil | mask_sedi | mask_aqua
+        edges_zs[~mask_any] = -1.
         
         # - fill basins -
         # (lakes / sea / whatev)
         zs, n_cycles = sub_func(
-            self.stats['soil'], self.edges['soil']+self.edges['aqua']+self.edges['sedi'],
-            z_range=z_max-z_min)
+            self.stats['soil'], edges_zs, z_range=z_max-z_min)
 
         self.stats['aqua'] = zs - self.stats['soil']
         self.stats['sedi'] = 0.

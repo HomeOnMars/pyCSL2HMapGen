@@ -226,10 +226,10 @@ def _device_init_sarr_with_edges(
 
 @cuda.jit(fastmath=True)
 def _erode_rainfall_init_sub_cuda_sub(
-    zs_cuda,     # in/out
-    soils_cuda,  # in
-    edges_cuda,  # in
-    is_changed,  # out
+    is_changed,     # out
+    zs_cuda,        # in/out
+    soils_cuda,     # in
+    edges_zs_cuda,  # in
 ):
     """CUDA GPU-accelerated sub process.
 
@@ -257,8 +257,8 @@ def _erode_rainfall_init_sub_cuda_sub(
 
     # - preload data -
     soil = soils_cuda[i, j]
-    edge = edges_cuda[i, j]
-    zs_sarr[ti, tj] = zs_cuda[i, j] if edge < 0 else edge
+    edge_z = edges_zs_cuda[i, j]
+    zs_sarr[ti, tj] = zs_cuda[i, j] if edge_z < 0 else edge_z
     
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
@@ -272,7 +272,7 @@ def _erode_rainfall_init_sub_cuda_sub(
     done = True
     for ki in range(cuda.blockDim.x + cuda.blockDim.y - 4):
         # level the lake height within the block
-        if edge < 0:    # only do things if not fixed
+        if edge_z < 0:    # only do things if not fixed
             z_new = min(
                 zs_sarr[ti-1, tj],
                 zs_sarr[ti+1, tj],
@@ -298,7 +298,7 @@ def _erode_rainfall_init_sub_cuda_sub(
 
 def _erode_rainfall_init_sub_cuda(
     soils: npt.NDArray[np.float32],
-    edges: npt.NDArray[np.float32],
+    edges_zs: npt.NDArray[np.float32],
     z_range: np.float32,
 ) -> tuple[npt.NDArray[np.float32], int]:
     """CUDA version of the sub process for rainfall erosion init.
@@ -322,9 +322,9 @@ def _erode_rainfall_init_sub_cuda(
     # - fill basins -
     # (lakes / sea / whatev)
     zs = np.where(
-        edges < 0.,
+        edges_zs < 0.,
         z_range,
-        edges,
+        edges_zs,
     )
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
@@ -332,12 +332,12 @@ def _erode_rainfall_init_sub_cuda(
     is_changed_cuda = cuda.to_device(np.ones(1, dtype=np.bool_))
     zs_cuda = cuda.to_device(np.ascontiguousarray(zs))
     soils_cuda = cuda.to_device(np.ascontiguousarray(soils))
-    edges_cuda = cuda.to_device(np.ascontiguousarray(edges))
+    edges_zs_cuda = cuda.to_device(np.ascontiguousarray(edges_zs))
     while is_changed_cuda[0]:
         is_changed_cuda[0] = False
         n_cycles += 1
         _erode_rainfall_init_sub_cuda_sub[cuda_bpg, cuda_tpb](
-                zs_cuda, soils_cuda, edges_cuda, is_changed_cuda)
+            is_changed_cuda, zs_cuda, soils_cuda, edges_zs_cuda)
         cuda.synchronize()
 
     # - return -
