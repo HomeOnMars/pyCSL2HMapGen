@@ -66,7 +66,7 @@ CUDA_TPB : int = 16
 
 N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
 # Adjacent cells location offsets
-#    matches _is_at_edge_k_cudev().
+#    matches _is_at_inner_edge_k_cudev().
 #    Do NOT change the first 5 rows.
 #    Every even row and the next odd row must be polar opposite.
 ADJ_OFFSETS : tuple = (
@@ -121,7 +121,7 @@ def _get_coord_cudev() -> tuple[int, int, int, int]:
 
 
 @cuda.jit(device=True, fastmath=True)
-def _is_at_edge_k_cudev(
+def _is_at_inner_edge_k_cudev(
     k, nx, ny,     # in
     i, j, ti, tj,  # in
 ) -> bool:
@@ -131,32 +131,31 @@ def _is_at_edge_k_cudev(
 
     ---------------------------------------------------------------------------
     """
-    if   k == 1 and ti == 0:
-        return True
-    elif k == 2 and (ti == CUDA_TPB-1 or i+1 == nx):
-        return True
-    elif k == 3 and tj == 0:
-        return True
-    elif k == 4 and (tj == CUDA_TPB-1 or j+1 == ny):
+    if (   k == 1 and ti == 1
+        or k == 2 and (ti == CUDA_TPB-2 or i == nx-2)
+        or k == 3 and tj == 1
+        or k == 4 and (tj == CUDA_TPB-2 or j == ny-2)
+       ):
         return True
     return False
 
 
 
 @cuda.jit(device=True, fastmath=True)
-def _is_at_edge_cudev(
+def _is_at_outer_edge_cudev(
     nx, ny, i, j, ti, tj,  # in
 ) -> bool:
     """Test if thread is at the edge of the block.
 
-    See also _is_at_edge_k_cudev(...).
+    See also _is_at_inner_edge_k_cudev(...).
 
     ---------------------------------------------------------------------------
     """
     if (   ti == 0
-        or ti == CUDA_TPB-1 or i+1 == nx
+        or ti == CUDA_TPB-1 or i == nx-1
         or tj == 0
-        or tj == CUDA_TPB-1 or j+1 == ny):
+        or tj == CUDA_TPB-1 or j == ny-1
+       ):
         return True
     return False
 
@@ -285,7 +284,7 @@ def _erode_rainfall_init_sub_cuda_sub(
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
 
-    if _is_at_edge_cudev(nx, ny, i, j, ti, tj):
+    if _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
         return
         
     cuda.syncthreads()
@@ -521,8 +520,9 @@ def _erode_rainfall_evolve_cuda_final(
     z_res: float32,
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda."""
-    # *** Pending optimization ***
-    #    - no need to store the entire grid, just the edges
+    # *** Pending optimization/overhaul ***
+    #    - should not store the entire grid, just the edges
+    #    - *** warning: potential racing condition unfixed
     
     # - define shared data structure -
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
@@ -537,7 +537,7 @@ def _erode_rainfall_evolve_cuda_final(
     edge = edges_cuda[i, j]
     # add back at edges
     for k in range(1, N_ADJ_P1):
-        if _is_at_edge_k_cudev(k, nx, ny, i, j, ti, tj):
+        if _is_at_inner_edge_k_cudev(k, nx, ny, i, j, ti, tj):
             # add everything, just in case
             for n in range(d_stats_cuda.shape[-1]):
                 _add_stats_cudev(stat, d_stats_cuda[i, j, n], edge)
@@ -611,7 +611,6 @@ def _erode_rainfall_evolve_cuda_sub(
     # load local
     stat = stats_sarr[ti, tj]
     edge = edges_cuda[ i,  j]
-    is_at_edge = _is_at_edge_cudev(nx, ny, i, j, ti, tj)
     
     # - rain & evaporate -
     # cap rains to the maximum height
@@ -621,7 +620,7 @@ def _erode_rainfall_evolve_cuda_sub(
     
     cuda.syncthreads()
 
-    if is_at_edge:
+    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
         # load local
         for k in range(N_ADJ_P1):
             stats_local[k] = stats_sarr[
@@ -651,21 +650,23 @@ def _erode_rainfall_evolve_cuda_sub(
     for k in range(N_ADJ_P1):
         # could use optimization
         _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
-    # write back at edges
-    if is_at_edge:
-        for k in range(1, N_ADJ_P1):
-            if _is_at_edge_k_cudev(k, nx, ny, i, j, ti, tj):
-                d_stats_cuda[
-                    i + ADJ_OFFSETS[k][0],
-                    j + ADJ_OFFSETS[k][1],
-                    (k-1)//2
-                ] = d_stats_local[k]
-    else:
+    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
         _normalize_stat_cudev(stat, edge, z_res)
+    else:
         # otherwise,
         #    wait for _erode_rainfall_evolve_cuda_final(...) for normalization
+        pass
+    for k in range(1, N_ADJ_P1):
+        if _is_at_inner_edge_k_cudev(k, nx, ny, i, j, ti, tj):
+            d_stats_cuda[
+                i + ADJ_OFFSETS[k][0],
+                j + ADJ_OFFSETS[k][1],
+                (k-1)//2
+            ] = d_stats_local[k]
+
     # write back
-    stats_cuda[i, j, i_layer_write] = stat
+    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+        stats_cuda[i, j, i_layer_write] = stat
     
 
 def _erode_rainfall_evolve_cuda(
