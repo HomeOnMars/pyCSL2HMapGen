@@ -333,7 +333,7 @@ class ErosionState(HMap):
         # - fill basins -
         # (lakes / sea / whatev)
         zs, n_cycles = sub_func(
-            self.stats['soil'], self.edges['soil'] + self.edges['aqua'],
+            self.stats['soil'], self.edges['soil']+self.edges['aqua']+self.edges['sedi'],
             z_range=z_max-z_min)
 
         self.stats['aqua'] = zs - self.stats['soil']

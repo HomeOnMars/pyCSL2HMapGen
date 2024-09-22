@@ -95,8 +95,8 @@ def get_cuda_bpg_tpb(nx, ny) -> tuple[tuple[int, int], tuple[int, int]]:
     cuda_tpb = (int(CUDA_TPB), int(CUDA_TPB))
     cuda_bpg = (
         # -2 because we are not using the edge of the block
-        (nx-2 + cuda_tpb_shape[0]-2 - 1) // (cuda_tpb_shape[0]-2),
-        (ny-2 + cuda_tpb_shape[1]-2 - 1) // (cuda_tpb_shape[1]-2),
+        (nx-2 + cuda_tpb[0]-2 - 1) // (cuda_tpb[0]-2),
+        (ny-2 + cuda_tpb[1]-2 - 1) // (cuda_tpb[1]-2),
     )
     return cuda_bpg, cuda_tpb
 
@@ -124,9 +124,11 @@ def _device_is_at_edge_k(
     k, nx, ny,     # in
     i, j, ti, tj,  # in
 ) -> bool:
-    """Test if it is at k-th edge.
+    """Test if thread is at k-th edge of the block.
 
     k-th edge matches ADJ_OFFSETS constant.
+
+    ---------------------------------------------------------------------------
     """
     if   k == 1 and ti == 0:
         return True
@@ -135,6 +137,25 @@ def _device_is_at_edge_k(
     elif k == 3 and tj == 0:
         return True
     elif k == 4 and (tj == CUDA_TPB-1 or j+1 == ny):
+        return True
+    return False
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _device_is_at_edge(
+    nx, ny, i, j, ti, tj,  # in
+) -> bool:
+    """Test if thread is at the edge of the block.
+
+    See also _device_is_at_edge_k(...).
+
+    ---------------------------------------------------------------------------
+    """
+    if (   ti == 0
+        or ti == CUDA_TPB-1 or i+1 == nx
+        or tj == 0
+        or tj == CUDA_TPB-1 or j+1 == ny):
         return True
     return False
 
@@ -168,8 +189,6 @@ def _device_read_sarr_with_edges(
     
     ---------------------------------------------------------------------------
     """
-    # nx_p2 means n pixel at x direction plus 2
-    nx, ny_p2 = in_arr.shape
     out_sarr[ti, tj] = in_arr[i, j]
     return
 
@@ -196,15 +215,6 @@ def _device_init_sarr_with_edges(
     ---------------------------------------------------------------------------
     """
     out_sarr[ti, tj] = init_value
-    # load edges
-    if ti == 1:
-        out_sarr[ti-1, tj] = init_value
-    if ti == CUDA_TPB or i+2 == nx_p2:
-        out_sarr[ti+1, tj] = init_value
-    if tj == 1:
-        out_sarr[ti, tj-1] = init_value
-    if tj == CUDA_TPB or j+2 == ny_p2:
-        out_sarr[ti, tj+1] = init_value
     return
     
 
@@ -238,24 +248,21 @@ def _erode_rainfall_init_sub_cuda_sub(
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # - get thread coordinates -
-    nx_p2, ny_p2 = zs_cuda.shape
-    i, j , ti, tj = _device_get_coord()
-    
-    i, j = cuda.grid(2)
-    # add 1 to account for the edges in the data
-    i += 1; j += 1
-    if i + 1 >= nx_p2 or j + 1 >= ny_p2:
-        # do nothing if out of bound
+    nx, ny = zs_cuda.shape
+    i, j, ti, tj = _device_get_coord()
+
+    if _device_is_outside_map(nx, ny, i, j):
         return
-    # add 1 to account for the edges in the data
-    ti = cuda.threadIdx.x + 1
-    tj = cuda.threadIdx.y + 1
 
     # - preload data -
     soil = soils_cuda[i, j]
-    _device_read_sarr_with_edges(zs_sarr, zs_cuda, i, j, ti, tj)
+    zs_sarr[ti, tj] = zs_cuda[i, j]
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
+
+    if _device_is_at_edge(nx, ny, i, j, ti, tj):
+        return
+        
     cuda.syncthreads()
 
     # - do math -
@@ -310,8 +317,11 @@ def _erode_rainfall_init_sub_cuda(
 
     # - fill basins -
     # (lakes / sea / whatev)
-    zs = edges.copy()
-    zs[1:-1, 1:-1] = z_range    # first fill, then drain
+    zs = np.where(
+        edges < 0.,
+        z_range,
+        edges,
+    )
     # note: zs' edge elems are fixed
     n_cycles = 0    # debug
     # - CUDA GPU-acceleration -
@@ -612,17 +622,15 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - get thread coordinates -
     nx_p2, ny_p2, _ = stats_cuda.shape
-    i, j , ti, tj = _device_get_coord()
+    i, j, ti, tj = _device_get_coord()
     i_layer_write = 1 - i_layer_read
-    is_at_edge: bool_ = False
     if i+1 >= nx_p2 or j+1 >= ny_p2:
         # do nothing if out of bound
         return
 
     # - preload data -
     # load shared
-    _device_read_sarr_with_edges(
-        stats_sarr, stats_cuda[:, :, i_layer_read], i, j, ti, tj)
+    stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
     # init shared temp
@@ -631,6 +639,7 @@ def _erode_rainfall_evolve_cuda_sub(
             d_stats_sarr[:, :, k],
             zero_stat, nx_p2, ny_p2, i, j, ti, tj)
     # load local
+    is_at_edge: bool_ = False
     stat = stats_sarr[ti, tj]
     edge = edges_cuda[ i,  j]
     
