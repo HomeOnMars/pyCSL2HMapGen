@@ -96,7 +96,7 @@ def get_cuda_bpg_tpb(nx, ny) -> tuple[tuple[int, int], tuple[int, int]]:
     tpb: threads per block
     bpg: blocks per grid
     """
-    cuda_tpb = (int(CUDA_TPB_X), int(CUDA_TPB_Y))
+    cuda_tpb = (CUDA_TPB_X, CUDA_TPB_Y)
     cuda_bpg = (
         # -2 because we are not using the edge of the block
         (nx-2 + cuda_tpb[0]-2 - 1) // (cuda_tpb[0]-2),
@@ -264,7 +264,6 @@ def _erode_rainfall_init_sub_cuda_sub(
     
     # - define shared data structure -
     # (shared by the threads in the same block)
-    # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
     zs_sarr = cuda.shared.array(shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=float32)
@@ -606,13 +605,11 @@ def _erode_rainfall_evolve_cuda_sub(
         return
 
     # - preload data -
-    # load shared
-    stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
     # init shared temp
     for k in range(N_ADJ_P1):
         d_stats_sarr[ti, tj, k] = zero_stat
     # load local
-    stat = stats_sarr[ti, tj]
+    stat = stats_cuda[i, j, i_layer_read]
     edge = edges_cuda[ i,  j]
     
     # - rain & evaporate -
