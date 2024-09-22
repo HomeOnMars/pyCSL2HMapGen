@@ -111,6 +111,7 @@ class ErosionState(HMap):
         self.stats: ErosionStateDataType = np.zeros(
             hmap.npix_xy, dtype=_ErosionStateDataDtype)
         # boundary conditions (will stay constant)
+        #    unset pixels will be denoted as np.nan
         self.edges: ErosionStateDataType = np.zeros(
             hmap.npix_xy, dtype=_ErosionStateDataDtype)
         # parameters
@@ -207,13 +208,6 @@ class ErosionState(HMap):
         """Resetting and safety checks."""
         
         super().normalize(overwrite=overwrite, verbose=verbose)
-
-        # self.stats['z'] = (
-        #     self.stats['sedi'] + self.stats['soil'] + self.stats['aqua']
-        # )
-        # self.edges['z'] = (
-        #     self.edges['sedi'] + self.edges['soil'] + self.edges['aqua']
-        # )
         
         if self.__done__init:
             # safety checks
@@ -315,30 +309,29 @@ class ErosionState(HMap):
         # init edges (i.e. const lvl water spawners)
         if init_edges:
             # could use optimization
-            # self.edges['sedi'] and self.edges['ekin']
-            #    are always 0 by default
-            self.edges[:] = 0
-            self.edges['soil'] = self.stats['soil']
-            self.edges['soil'][1:-1, 1:-1] = -1.
-            self.edges['aqua'] = np.where(
-                self.edges['soil'] < 0.,
-                -1.,
-                np.where(
-                    self.edges['soil'] < z_sea,
-                    z_sea - self.edges['soil'],
-                    0.,
-                ),
-            )
+
+            # mask: at map border
+            mask = np.full(self.stats.shape, False, dtype=np.bool_)
+            mask[ 0] = True
+            mask[-1] = True
+            mask[:,  0] = True
+            mask[:, -1] = True
+
+            # set edges at border
+            self.edges[:] = np.nan
+            self.edges[mask] = 0
+            self.edges['soil'][mask] = self.stats['soil'][mask]
+            self.edges['aqua'][mask] = z_sea - self.edges['soil'][mask]
+            self.edges['aqua'][self.edges['aqua'] <= 0.] = 0.
 
         edges_zs = np.zeros_like(self.edges['soil'])
-        mask_soil = self.edges['soil'] >= 0
-        edges_zs[mask_soil] += self.edges['soil'][mask_soil]
-        mask_sedi = self.edges['sedi'] >= 0
-        edges_zs[mask_sedi] += self.edges['sedi'][mask_sedi]
-        mask_aqua = self.edges['aqua'] >= 0
-        edges_zs[mask_aqua] += self.edges['aqua'][mask_aqua]
-        mask_any = mask_soil | mask_sedi | mask_aqua
-        edges_zs[~mask_any] = -1.
+        mask = ~np.isnan(self.edges['soil']); mask_any = mask
+        edges_zs[mask] += self.edges['soil'][mask]
+        mask = ~np.isnan(self.edges['sedi']); mask_any = mask_any|mask
+        edges_zs[mask] += self.edges['sedi'][mask]
+        mask = ~np.isnan(self.edges['aqua']); mask_any = mask_any|mask
+        edges_zs[mask] += self.edges['aqua'][mask]
+        edges_zs[~mask_any] = np.nan
         
         # - fill basins -
         # (lakes / sea / whatev)

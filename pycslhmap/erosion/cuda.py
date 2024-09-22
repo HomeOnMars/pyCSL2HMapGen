@@ -10,6 +10,7 @@ Author: HomeOnMars
 
 # imports (built-in)
 from typing import Self
+import math
 
 # imports (3rd party)
 from numba import jit, prange, cuda, float32, bool_
@@ -258,7 +259,7 @@ def _erode_rainfall_init_sub_cuda_sub(
     # - preload data -
     soil = soils_cuda[i, j]
     edge_z = edges_zs_cuda[i, j]
-    zs_sarr[ti, tj] = zs_cuda[i, j] if edge_z < 0 else edge_z
+    zs_sarr[ti, tj] = zs_cuda[i, j] if math.isnan(edge_z) else edge_z
     
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
@@ -272,7 +273,7 @@ def _erode_rainfall_init_sub_cuda_sub(
     done = True
     for ki in range(cuda.blockDim.x + cuda.blockDim.y - 4):
         # level the lake height within the block
-        if edge_z < 0:    # only do things if not fixed
+        if math.isnan(edge_z):    # only do things if not fixed
             z_new = min(
                 zs_sarr[ti-1, tj],
                 zs_sarr[ti+1, tj],
@@ -322,7 +323,7 @@ def _erode_rainfall_init_sub_cuda(
     # - fill basins -
     # (lakes / sea / whatev)
     zs = np.where(
-        edges_zs < 0.,
+        np.isnan(edges_zs),
         z_range,
         edges_zs,
     )
@@ -355,14 +356,40 @@ def _erode_rainfall_init_sub_cuda(
 def _device_add_stats(
     stat : _ErosionStateDataDtype,    # in/out
     stat_add: _ErosionStateDataDtype, # in
+    edge : _ErosionStateDataDtype,    # in
 ):
-    """Adding stat_add to stat."""
-    stat['soil'] += stat_add['soil']
-    stat['sedi'] += stat_add['sedi']
-    stat['aqua'] += stat_add['aqua']
-    stat['p_x' ] += stat_add['p_x' ]
-    stat['p_y' ] += stat_add['p_y' ]
-    stat['ekin'] += stat_add['ekin']
+    """Adding stat_add to stat if edge is not set, else reset to edge."""
+    
+    if math.isnan(edge['soil']):
+        stat['soil'] += stat_add['soil']
+    else:
+        stat['soil'] = edge['soil']
+        
+    if math.isnan(edge['sedi']):
+        stat['sedi'] += stat_add['sedi']
+    else:
+        stat['sedi'] = edge['sedi']
+        
+    if math.isnan(edge['aqua']):
+        stat['aqua'] += stat_add['aqua']
+    else:
+        stat['aqua'] = edge['aqua']
+        
+    if math.isnan(edge['p_x']):
+        stat['p_x' ] += stat_add['p_x']
+    else:
+        stat['p_x' ] = edge['p_x']
+        
+    if not math.isnan(edge['p_y']):
+        stat['p_y' ] += stat_add['p_y']
+    else:
+        stat['p_y' ] = edge['p_y']
+    
+    if math.isnan(edge['ekin']):
+        stat['ekin'] += stat_add['ekin']
+    else:
+        stat['ekin'] = edge['ekin']
+
     return
 
 
@@ -565,8 +592,7 @@ def _erode_rainfall_evolve_cuda_final(
         if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
             # add everything, just in case
             for n in range(d_stats_cuda.shape[-1]):
-                if edge['soil'] < 0:    # no boundary condition here
-                    _device_add_stats(stat, d_stats_cuda[i, j, n])
+                _device_add_stats(stat, d_stats_cuda[i, j, n], edge)
                 # reset
                 d_stats_cuda[i, j, n] = zero_stat
             _device_normalize_stat(stat, z_res)
@@ -691,9 +717,9 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - write data back -
     # summarize
-    if edge['soil'] < 0:
+    if math.isnan(edge['soil']):
         for k in range(N_ADJ_P1):
-            _device_add_stats(stat, d_stats_sarr[ti, tj, k])
+            _device_add_stats(stat, d_stats_sarr[ti, tj, k], edge)
     else:
         # disgard changes and apply boundary conditions
         stat = edge
