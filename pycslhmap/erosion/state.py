@@ -76,11 +76,6 @@ _erode_rainfall_evolve_default = (
 #-----------------------------------------------------------------------------#
 
 
-def _shape_add_two(shape: tuple[int, int]) -> tuple[int, int]:
-    return tuple([x+2 for x in shape])
-
-
-
 class ErosionState(HMap):
     """Erosion state snapshot.
 
@@ -114,10 +109,10 @@ class ErosionState(HMap):
         self.__done__init: bool = False
         # actual values
         self.stats: ErosionStateDataType = np.zeros(
-            _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
+            hmap.npix_xy, dtype=_ErosionStateDataDtype)
         # boundary conditions (will stay constant)
         self.edges: ErosionStateDataType = np.zeros(
-            _shape_add_two(hmap.npix_xy), dtype=_ErosionStateDataDtype)
+            hmap.npix_xy, dtype=_ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
         # extended info on stats
@@ -168,14 +163,6 @@ class ErosionState(HMap):
         return {k: v['value'] for k, v in self.__pars.items()}
 
     @property
-    def shape_stats(self) -> tuple[int, int]:
-        return self.stats.shape
-        
-    @property
-    def _shape_stats_calc(self) -> tuple[int, int]:
-        return _shape_add_two(self.npix_xy)
-
-    @property
     def stats_data(self) -> ErosionStateDataExtendedType:
         """Return the center part of the self.stats"""
         return self.stats[1:-1, 1:-1]
@@ -186,10 +173,10 @@ class ErosionState(HMap):
         # init
         if (
             self.__stats_ext is None
-            or self.__stats_ext.shape != self.shape_stats
+            or self.__stats_ext.shape != self.stats.shape
         ):
             self.__stats_ext = np.empty(
-                self.shape_stats, dtype=_ErosionStateDataExtendedDtype)
+                self.stats.shape, dtype=_ErosionStateDataExtendedDtype)
         # re-calc
         mask_has_water = self.stats['aqua'] > 0
         self.__stats_ext['h'] = self.stats['sedi'] + self.stats['aqua']
@@ -211,11 +198,6 @@ class ErosionState(HMap):
         )**0.5 / self.__stats_ext['m'][mask_has_water]
         self.__stats_ext['v']
         return self.__stats_ext
-
-    @property
-    def stats_ext_data(self) -> ErosionStateDataExtendedType:
-        """Return the center part of the self.stats_ext"""
-        return self.stats_ext[1:-1, 1:-1]
         
     
     
@@ -235,7 +217,8 @@ class ErosionState(HMap):
         
         if self.__done__init:
             # safety checks
-            assert self.shape_stats == self._shape_stats_calc
+            assert self.stats.shape == self.npix_xy
+            assert self.edges.shape == self.npix_xy
 
         return self
 
@@ -318,23 +301,14 @@ class ErosionState(HMap):
         # - init -
         npix_x, npix_y = self.npix_xy
         z_min, z_sea, z_max, z_res = self.z_config
-        data  = self.data
-        soils = self.stats['soil']
+        
+        # self.stats[:] = 0
     
         # init soils
-        soils[1:-1, 1:-1] = data
-        soils[ 0,   1:-1] = data[ 0]
-        soils[-1,   1:-1] = data[-1]
-        soils[1:-1,    0] = data[:, 0]
-        soils[1:-1,   -1] = data[:,-1]
-        soils[ 0, 0] = min(soils[ 0, 1], soils[ 1, 0])
-        soils[-1, 0] = min(soils[-1, 1], soils[-2, 0])
-        soils[ 0,-1] = min(soils[ 0,-2], soils[ 1,-1])
-        soils[-1,-1] = min(soils[-1,-2], soils[-2,-1])
         self.stats['soil'] = np.where(
-            soils <= z_min,
+            self.data <= z_min,
             0.,
-            soils - z_min,
+            self.data - z_min,
         )
         soils = self.stats['soil']
         
@@ -343,9 +317,9 @@ class ErosionState(HMap):
             # could use optimization
             # self.edges['sedi'] and self.edges['ekin']
             #    are always 0 by default
-            self.edges[:] = 0.
+            self.edges[:] = 0
             self.edges['soil'] = self.stats['soil']
-            self.edges['soil'][2:-2, 2:-2] = -1.
+            self.edges['soil'][1:-1, 1:-1] = -1.
             self.edges['aqua'] = np.where(
                 self.edges['soil'] < 0.,
                 -1.,
@@ -355,7 +329,6 @@ class ErosionState(HMap):
                     0.,
                 ),
             )
-            # self.edges['z'] = self.edges['soil'] + self.edges['aqua']
         
         # - fill basins -
         # (lakes / sea / whatev)
@@ -363,8 +336,7 @@ class ErosionState(HMap):
             self.stats['soil'], self.edges['soil'] + self.edges['aqua'],
             z_range=z_max-z_min)
 
-        self.stats['aqua'] = self.edges['aqua']
-        self.stats['aqua'][1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
+        self.stats['aqua'] = zs - self.stats['soil']
         self.stats['sedi'] = 0.
         # speed is zero, so
         self.stats['p_x' ] = 0.
