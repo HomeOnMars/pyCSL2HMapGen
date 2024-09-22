@@ -164,11 +164,6 @@ class ErosionState(HMap):
         return {k: v['value'] for k, v in self.__pars.items()}
 
     @property
-    def stats_data(self) -> ErosionStateDataExtendedType:
-        """Return the center part of the self.stats"""
-        return self.stats[1:-1, 1:-1]
-
-    @property
     def stats_ext(self) -> ErosionStateDataExtendedType:
         """Calculate the extended data of self.stats"""
         # init

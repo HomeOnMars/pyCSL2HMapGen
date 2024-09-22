@@ -66,7 +66,7 @@ CUDA_TPB : int = 16
 
 N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
 # Adjacent cells location offsets
-#    matches _device_is_at_edge_k().
+#    matches _is_at_edge_k_cudev().
 #    Do NOT change the first 5 rows.
 #    Every even row and the next odd row must be polar opposite.
 ADJ_OFFSETS : tuple = (
@@ -109,7 +109,7 @@ def get_cuda_bpg_tpb(nx, ny) -> tuple[tuple[int, int], tuple[int, int]]:
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_get_coord() -> tuple[int, int, int, int]:
+def _get_coord_cudev() -> tuple[int, int, int, int]:
     # - get thread coordinates -
     # blockDim-2 because we are only calculating in the center of the block
     i = cuda.threadIdx.x + cuda.blockIdx.x * (cuda.blockDim.x-2)
@@ -121,7 +121,7 @@ def _device_get_coord() -> tuple[int, int, int, int]:
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_is_at_edge_k(
+def _is_at_edge_k_cudev(
     k, nx, ny,     # in
     i, j, ti, tj,  # in
 ) -> bool:
@@ -144,12 +144,12 @@ def _device_is_at_edge_k(
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_is_at_edge(
+def _is_at_edge_cudev(
     nx, ny, i, j, ti, tj,  # in
 ) -> bool:
     """Test if thread is at the edge of the block.
 
-    See also _device_is_at_edge_k(...).
+    See also _is_at_edge_k_cudev(...).
 
     ---------------------------------------------------------------------------
     """
@@ -163,7 +163,7 @@ def _device_is_at_edge(
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_is_outside_map(
+def _is_outside_map_cudev(
     nx, ny, i, j, # in
 ) -> bool:
     """Test if the cell is outside the map."""
@@ -171,53 +171,74 @@ def _device_is_outside_map(
 
 
 
-@cuda.jit(device=True, fastmath=True)
-def _device_read_sarr_with_edges(
-    # out
-    out_sarr,
-    # in
-    in_arr,
-    i, j, ti, tj,
-):
-    """Read data from global memory into shared array.
-
-    Assuming data has an 'edge',
-        i.e. extra row & column at both the beginning and the end.
-        So ti, tj should be within 1 <= ti <= CUDA_TPB
-        ans i,  j should be within 1 <=  i <= nx_p2 - 2
-
-    WARNING: the 4 corners will not be loaded.
-    
-    ---------------------------------------------------------------------------
-    """
-    out_sarr[ti, tj] = in_arr[i, j]
-    return
+#-----------------------------------------------------------------------------#
+#    Device Functions: Stats calc
+#-----------------------------------------------------------------------------#
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_init_sarr_with_edges(
-    # out
-    out_sarr,
-    # in
-    init_value,
-    nx_p2, ny_p2,
-    i, j, ti, tj,
+def _add_stats_cudev(
+    stat : _ErosionStateDataDtype,    # in/out
+    stat_add: _ErosionStateDataDtype, # in
+    edge : _ErosionStateDataDtype,    # in
 ):
-    """Read data from global memory into shared array.
-
-    Assuming data has an 'edge',
-        i.e. extra row & column at both the beginning and the end.
-        So ti, tj should be within 1 <= ti <= CUDA_TPB
-        ans i,  j should be within 1 <=  i <= nx_p2 - 2
-
-    nx_p2 means n pixel at x direction plus 2
-    WARNING: the 4 corners will not be loaded.
+    """Adding stat_add to stat if edge is not set, else reset to edge."""
     
+    if math.isnan(edge['soil']): stat['soil'] += stat_add['soil']
+    else: stat['soil'] = edge['soil']
+        
+    if math.isnan(edge['sedi']): stat['sedi'] += stat_add['sedi']
+    else: stat['sedi'] = edge['sedi']
+        
+    if math.isnan(edge['aqua']): stat['aqua'] += stat_add['aqua']
+    else: stat['aqua'] = edge['aqua']
+        
+    if math.isnan(edge['p_x' ]): stat['p_x' ] += stat_add['p_x']
+    else: stat['p_x' ] = edge['p_x']
+        
+    if math.isnan(edge['p_y' ]): stat['p_y' ] += stat_add['p_y']
+    else: stat['p_y' ] = edge['p_y']
+    
+    if math.isnan(edge['ekin']): stat['ekin'] += stat_add['ekin']
+    else: stat['ekin'] = edge['ekin']
+
+    return
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _get_z_and_h_cudev(
+    stat : _ErosionStateDataDtype,  # in
+) -> tuple[float32, float32]:
+    """Get total height z and fluid height h from stat."""
+    h = stat['sedi'] + stat['aqua']
+    return stat['soil'] + h, h
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _normalize_stat_cudev(
+    stat : _ErosionStateDataDtype,  # in/out
+    edge : _ErosionStateDataDtype,  # in
+    z_res: float32,  # in
+):
+    """Normalize stat var.
+    
+    return sedi to soil if all water evaporated etc.
+
     ---------------------------------------------------------------------------
     """
-    out_sarr[ti, tj] = init_value
+    if stat['aqua'] < z_res:
+        # water all evaporated.
+        stat['aqua'] = 0 if math.isnan(edge['aqua']) else edge['aqua']
+        if math.isnan(edge['soil']) and math.isnan(edge['sedi']):
+            stat['soil'] += stat['sedi']
+        stat['sedi'] = 0 if math.isnan(edge['sedi']) else edge['sedi']
+        stat['p_x' ] = 0 if math.isnan(edge['p_x' ]) else edge['p_x' ]
+        stat['p_y' ] = 0 if math.isnan(edge['p_y' ]) else edge['p_y' ]
+        stat['ekin'] = 0 if math.isnan(edge['ekin']) else edge['ekin']
     return
-    
+
 
 
 #-----------------------------------------------------------------------------#
@@ -251,9 +272,9 @@ def _erode_rainfall_init_sub_cuda_sub(
 
     # - get thread coordinates -
     nx, ny = zs_cuda.shape
-    i, j, ti, tj = _device_get_coord()
+    i, j, ti, tj = _get_coord_cudev()
 
-    if _device_is_outside_map(nx, ny, i, j):
+    if _is_outside_map_cudev(nx, ny, i, j):
         return
 
     # - preload data -
@@ -264,7 +285,7 @@ def _erode_rainfall_init_sub_cuda_sub(
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
 
-    if _device_is_at_edge(nx, ny, i, j, ti, tj):
+    if _is_at_edge_cudev(nx, ny, i, j, ti, tj):
         return
         
     cuda.syncthreads()
@@ -353,80 +374,7 @@ def _erode_rainfall_init_sub_cuda(
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_add_stats(
-    stat : _ErosionStateDataDtype,    # in/out
-    stat_add: _ErosionStateDataDtype, # in
-    edge : _ErosionStateDataDtype,    # in
-):
-    """Adding stat_add to stat if edge is not set, else reset to edge."""
-    
-    if math.isnan(edge['soil']):
-        stat['soil'] += stat_add['soil']
-    else:
-        stat['soil'] = edge['soil']
-        
-    if math.isnan(edge['sedi']):
-        stat['sedi'] += stat_add['sedi']
-    else:
-        stat['sedi'] = edge['sedi']
-        
-    if math.isnan(edge['aqua']):
-        stat['aqua'] += stat_add['aqua']
-    else:
-        stat['aqua'] = edge['aqua']
-        
-    if math.isnan(edge['p_x']):
-        stat['p_x' ] += stat_add['p_x']
-    else:
-        stat['p_x' ] = edge['p_x']
-        
-    if not math.isnan(edge['p_y']):
-        stat['p_y' ] += stat_add['p_y']
-    else:
-        stat['p_y' ] = edge['p_y']
-    
-    if math.isnan(edge['ekin']):
-        stat['ekin'] += stat_add['ekin']
-    else:
-        stat['ekin'] = edge['ekin']
-
-    return
-
-
-
-@cuda.jit(device=True, fastmath=True)
-def _device_get_z_and_h(
-    stat : _ErosionStateDataDtype,  # in
-) -> tuple[float32, float32]:
-    """Get total height z and fluid height h from stat."""
-    h = stat['sedi'] + stat['aqua']
-    return stat['soil'] + h, h
-
-
-
-@cuda.jit(device=True, fastmath=True)
-def _device_normalize_stat(
-    stat : _ErosionStateDataDtype,  # in/out
-    z_res: float32,  # in
-):
-    """Normalize stat var.
-    
-    return sedi to soil if all water evaporated etc.
-
-    ---------------------------------------------------------------------------
-    """
-    if stat['aqua'] < z_res:
-        # water all evaporated.
-        stat['aqua'] = 0
-        stat['soil'] += stat['sedi']
-        stat['sedi'] = 0
-        stat['ekin'] = 0
-    return
-
-
-
-@cuda.jit(device=True, fastmath=True)
-def _device_get_d_hs(
+def _get_d_hs_cudev(
     # out
     d_hs_local,
     # in
@@ -467,7 +415,7 @@ def _device_get_d_hs(
 
 
 @cuda.jit(device=True, fastmath=True)
-def _device_move_fluid(
+def _move_fluid_cudev(
     # out
     d_stats_local,
     # in
@@ -489,7 +437,7 @@ def _device_move_fluid(
     zs_local   = cuda.local.array(N_ADJ_P1, dtype=float32)  # z
     
     stat = stats_local[0]
-    z0, h0 = _device_get_z_and_h(stat)
+    z0, h0 = _get_z_and_h_cudev(stat)
     zs_local[0] = z0
     hws_local[0] = 0
 
@@ -501,11 +449,11 @@ def _device_move_fluid(
 
     # # init zs_local
     for k in range(1, N_ADJ_P1):
-        zk, _ = _device_get_z_and_h(stats_local[k])
+        zk, _ = _get_z_and_h_cudev(stats_local[k])
         zs_local[k] = zk
 
     # get d_hs_local
-    d_h_tot = _device_get_d_hs(
+    d_h_tot = _get_d_hs_cudev(
         d_hs_local,  # out
         h0, zs_local, z_res, flow_eff,   # in
     )
@@ -581,21 +529,21 @@ def _erode_rainfall_evolve_cuda_final(
     zero_stat = zero_stat_cuda[0]
     
     # - get thread coordinates -
-    nx_p2, ny_p2, _ = stats_cuda.shape
-    i, j , ti, tj = _device_get_coord()
+    nx, ny, _ = stats_cuda.shape
+    i, j , ti, tj = _get_coord_cudev()
 
     # - preload data -
     stat = stats_cuda[i, j, i_layer_read]
     edge = edges_cuda[i, j]
     # add back at edges
     for k in range(1, N_ADJ_P1):
-        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+        if _is_at_edge_k_cudev(k, nx, ny, i, j, ti, tj):
             # add everything, just in case
             for n in range(d_stats_cuda.shape[-1]):
-                _device_add_stats(stat, d_stats_cuda[i, j, n], edge)
+                _add_stats_cudev(stat, d_stats_cuda[i, j, n], edge)
                 # reset
                 d_stats_cuda[i, j, n] = zero_stat
-            _device_normalize_stat(stat, z_res)
+            _normalize_stat_cudev(stat, edge, z_res)
             break
     # write back
     stats_cuda[i, j, i_layer_read] = stat
@@ -617,9 +565,9 @@ def _erode_rainfall_evolve_cuda_sub(
 ):
     """Evolving 1 step.
 
-    stats_cuda: (nx_p2, ny_p2, 2)-shaped
-    edges_cuda: (nx_p2, ny_p2)-shaped
-    d_stats_cuda: (nx_p2, ny_p2, 2)-shaped
+    stats_cuda: (nx, ny, 2)-shaped
+    edges_cuda: (nx, ny)-shaped
+    d_stats_cuda: (nx, ny, 2)-shaped
     
     z_max:
         z_min is assumed to be zero.
@@ -633,7 +581,6 @@ def _erode_rainfall_evolve_cuda_sub(
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB, CUDA_TPB), dtype=_ErosionStateDataDtype)
-    flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
 
     # 5 elems **for** this [i, j] location **from** adjacent locations:
     #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
@@ -649,91 +596,72 @@ def _erode_rainfall_evolve_cuda_sub(
     d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     
     # - get thread coordinates -
-    nx_p2, ny_p2, _ = stats_cuda.shape
-    i, j, ti, tj = _device_get_coord()
+    nx, ny, _ = stats_cuda.shape
+    i, j, ti, tj = _get_coord_cudev()
     i_layer_write = 1 - i_layer_read
-    if i+1 >= nx_p2 or j+1 >= ny_p2:
-        # do nothing if out of bound
+    if _is_outside_map_cudev(nx, ny, i, j):
         return
 
     # - preload data -
     # load shared
     stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
-    if ti == 1 and tj == 1:
-        flags_sarr[0] = False
     # init shared temp
     for k in range(N_ADJ_P1):
-        _device_init_sarr_with_edges(
-            d_stats_sarr[:, :, k],
-            zero_stat, nx_p2, ny_p2, i, j, ti, tj)
+        d_stats_sarr[ti, tj, k] = zero_stat
     # load local
-    is_at_edge: bool_ = False
     stat = stats_sarr[ti, tj]
     edge = edges_cuda[ i,  j]
+    is_at_edge = _is_at_edge_cudev(nx, ny, i, j, ti, tj)
     
     # - rain & evaporate -
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
-    _device_normalize_stat(stat, z_res)
+    _normalize_stat_cudev(stat, edge, z_res)
     stats_sarr[ti, tj] = stat
-    # do the edges too
-    for k in range(1, N_ADJ_P1):
-        if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
-            is_at_edge = True
-            stats_temp = stats_sarr[
-                ti + ADJ_OFFSETS[k][0],
-                tj + ADJ_OFFSETS[k][1]]
-            stats_temp['aqua'] = min(stats_temp['aqua'] - evapor_rate, z_max)
-            _device_normalize_stat(stats_temp, z_res)
-            stats_sarr[
-                ti + ADJ_OFFSETS[k][0],
-                tj + ADJ_OFFSETS[k][1]] = stats_temp
     
     cuda.syncthreads()
 
-    # load local
-    for k in range(N_ADJ_P1):
-        stats_local[k] = stats_sarr[
-            ti + ADJ_OFFSETS[k][0],
-            tj + ADJ_OFFSETS[k][1]]
+    if is_at_edge:
+        # load local
+        for k in range(N_ADJ_P1):
+            stats_local[k] = stats_sarr[
+                ti + ADJ_OFFSETS[k][0],
+                tj + ADJ_OFFSETS[k][1]]
 
-    # - move water -
-    _device_move_fluid(
-        d_stats_local,
-        stats_local, zero_stat, z_res,
-        flow_eff, rho_soil_div_aqua, g,
-    )
+        # - move water -
+        _move_fluid_cudev(
+            d_stats_local,
+            stats_local, zero_stat, z_res,
+            flow_eff, rho_soil_div_aqua, g,
+        )
     
-    for k in range(N_ADJ_P1):
-        d_stats_sarr[
-            ti + ADJ_OFFSETS[k][0],
-            tj + ADJ_OFFSETS[k][1],
-            k
-        ] = d_stats_local[k]
-    
-    # *** Add code here! ***
+        for k in range(N_ADJ_P1):
+            d_stats_sarr[
+                ti + ADJ_OFFSETS[k][0],
+                tj + ADJ_OFFSETS[k][1],
+                k
+            ] = d_stats_local[k]
+        
+        # *** Add code here! ***
 
     cuda.syncthreads()
     
     # - write data back -
     # summarize
-    if math.isnan(edge['soil']):
-        for k in range(N_ADJ_P1):
-            _device_add_stats(stat, d_stats_sarr[ti, tj, k], edge)
-    else:
-        # disgard changes and apply boundary conditions
-        stat = edge
+    for k in range(N_ADJ_P1):
+        # could use optimization
+        _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
     # write back at edges
     if is_at_edge:
         for k in range(1, N_ADJ_P1):
-            if _device_is_at_edge_k(k, nx_p2, ny_p2, i, j, ti, tj):
+            if _is_at_edge_k_cudev(k, nx, ny, i, j, ti, tj):
                 d_stats_cuda[
                     i + ADJ_OFFSETS[k][0],
                     j + ADJ_OFFSETS[k][1],
                     (k-1)//2
                 ] = d_stats_local[k]
     else:
-        _device_normalize_stat(stat, z_res)
+        _normalize_stat_cudev(stat, edge, z_res)
         # otherwise,
         #    wait for _erode_rainfall_evolve_cuda_final(...) for normalization
     # write back
