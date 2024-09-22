@@ -78,7 +78,7 @@ ADJ_OFFSETS : tuple = (
     ( 0,  1),
 )
 # number of adjacent cells +1 (+1 for the origin cell)
-N_ADJ_P1 : int = len(ADJ_OFFSETS)+1
+N_ADJ_P1 : int = 5
 
 
 _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
@@ -183,7 +183,7 @@ def _add_stats_cudev(
     stat : _ErosionStateDataDtype,    # in/out
     stat_add: _ErosionStateDataDtype, # in
     edge : _ErosionStateDataDtype,    # in
-):
+) -> _ErosionStateDataDtype:
     """Adding stat_add to stat if edge is not set, else reset to edge."""
     
     if math.isnan(edge['soil']): stat['soil'] += stat_add['soil']
@@ -204,7 +204,7 @@ def _add_stats_cudev(
     if math.isnan(edge['ekin']): stat['ekin'] += stat_add['ekin']
     else: stat['ekin'] = edge['ekin']
 
-    return
+    return stat
 
 
 
@@ -223,7 +223,7 @@ def _normalize_stat_cudev(
     stat : _ErosionStateDataDtype,  # in/out
     edge : _ErosionStateDataDtype,  # in
     z_res: float32,  # in
-):
+) -> _ErosionStateDataDtype:
     """Normalize stat var.
     
     return sedi to soil if all water evaporated etc.
@@ -239,7 +239,7 @@ def _normalize_stat_cudev(
         stat['p_x' ] = 0 if math.isnan(edge['p_x' ]) else edge['p_x' ]
         stat['p_y' ] = 0 if math.isnan(edge['p_y' ]) else edge['p_y' ]
         stat['ekin'] = 0 if math.isnan(edge['ekin']) else edge['ekin']
-    return
+    return stat
 
 
 
@@ -543,10 +543,10 @@ def _erode_rainfall_evolve_cuda_final(
         if _is_at_inner_edge_k_cudev(k, nx, ny, i, j, ti, tj):
             # add everything, just in case
             for n in range(d_stats_cuda.shape[-1]):
-                _add_stats_cudev(stat, d_stats_cuda[i, j, n], edge)
+                stat = _add_stats_cudev(stat, d_stats_cuda[i, j, n], edge)
                 # reset
                 d_stats_cuda[i, j, n] = zero_stat
-            _normalize_stat_cudev(stat, edge, z_res)
+            stat = _normalize_stat_cudev(stat, edge, z_res)
             break
     # write back
     stats_cuda[i, j, i_layer_read] = stat
@@ -618,7 +618,7 @@ def _erode_rainfall_evolve_cuda_sub(
     # - rain & evaporate -
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
-    _normalize_stat_cudev(stat, edge, z_res)
+    stat = _normalize_stat_cudev(stat, edge, z_res)
     stats_sarr[ti, tj] = stat
     
     cuda.syncthreads()
@@ -652,9 +652,9 @@ def _erode_rainfall_evolve_cuda_sub(
     # summarize
     for k in range(N_ADJ_P1):
         # could use optimization
-        _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
+        stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
     if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
-        _normalize_stat_cudev(stat, edge, z_res)
+        stat = _normalize_stat_cudev(stat, edge, z_res)
     else:
         # otherwise,
         #    wait for _erode_rainfall_evolve_cuda_final(...) for normalization
