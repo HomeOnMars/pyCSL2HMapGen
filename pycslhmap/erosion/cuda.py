@@ -58,13 +58,13 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 # Threads per block - controls shared memory usage for GPU
-# The block will have (CUDA_TPB, CUDA_TPB)-shaped threads
+# The block will have (CUDA_TPB_X, CUDA_TPB_Y)-shaped threads
 # Example see
 # https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
 # 4 <= CUDA_TPB <= 32
-CUDA_TPB : int = 16
+CUDA_TPB_X : int = 16
+CUDA_TPB_Y : int = 16
 
-N_ADJ_P1 : int = 4+1    # number of adjacent cells +1 (+1 for the origin cell)
 # Adjacent cells location offsets
 #    matches _is_at_inner_edge_k_cudev().
 #    Do NOT change the first 5 rows.
@@ -77,6 +77,9 @@ ADJ_OFFSETS : tuple = (
     ( 0, -1),
     ( 0,  1),
 )
+# number of adjacent cells +1 (+1 for the origin cell)
+N_ADJ_P1 : int = len(ADJ_OFFSETS)+1
+
 
 _ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
 
@@ -93,7 +96,7 @@ def get_cuda_bpg_tpb(nx, ny) -> tuple[tuple[int, int], tuple[int, int]]:
     tpb: threads per block
     bpg: blocks per grid
     """
-    cuda_tpb = (int(CUDA_TPB), int(CUDA_TPB))
+    cuda_tpb = (int(CUDA_TPB_X), int(CUDA_TPB_Y))
     cuda_bpg = (
         # -2 because we are not using the edge of the block
         (nx-2 + cuda_tpb[0]-2 - 1) // (cuda_tpb[0]-2),
@@ -132,9 +135,9 @@ def _is_at_inner_edge_k_cudev(
     ---------------------------------------------------------------------------
     """
     if (   k == 1 and ti == 1
-        or k == 2 and (ti == CUDA_TPB-2 or i == nx-2)
+        or k == 2 and (ti == CUDA_TPB_X-2 or i == nx-2)
         or k == 3 and tj == 1
-        or k == 4 and (tj == CUDA_TPB-2 or j == ny-2)
+        or k == 4 and (tj == CUDA_TPB_Y-2 or j == ny-2)
        ):
         return True
     return False
@@ -152,9 +155,9 @@ def _is_at_outer_edge_cudev(
     ---------------------------------------------------------------------------
     """
     if (   ti == 0
-        or ti == CUDA_TPB-1 or i == nx-1
+        or ti == CUDA_TPB_X-1 or i == nx-1
         or tj == 0
-        or tj == CUDA_TPB-1 or j == ny-1
+        or tj == CUDA_TPB_Y-1 or j == ny-1
        ):
         return True
     return False
@@ -264,7 +267,7 @@ def _erode_rainfall_init_sub_cuda_sub(
     # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
-    zs_sarr = cuda.shared.array(shape=(CUDA_TPB, CUDA_TPB), dtype=float32)
+    zs_sarr = cuda.shared.array(shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=float32)
     # flags_cuda:
     #    0: has_changes_in_this_thread_block
     flags_sarr = cuda.shared.array(shape=(1,), dtype=bool_)
@@ -291,7 +294,7 @@ def _erode_rainfall_init_sub_cuda_sub(
 
     # - do math -
     done = True
-    for ki in range(cuda.blockDim.x + cuda.blockDim.y - 4):
+    for ki in range(CUDA_TPB_X + CUDA_TPB_Y - 4):
         # level the lake height within the block
         if math.isnan(edge_z):    # only do things if not fixed
             z_new = min(
@@ -580,12 +583,12 @@ def _erode_rainfall_evolve_cuda_sub(
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
-        shape=(CUDA_TPB, CUDA_TPB), dtype=_ErosionStateDataDtype)
+        shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=_ErosionStateDataDtype)
 
     # 5 elems **for** this [i, j] location **from** adjacent locations:
     #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
     d_stats_sarr = cuda.shared.array(
-        shape=(CUDA_TPB, CUDA_TPB, N_ADJ_P1),
+        shape=(CUDA_TPB_X, CUDA_TPB_Y, N_ADJ_P1),
         dtype=_ErosionStateDataDtype)
     # for init
     zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
