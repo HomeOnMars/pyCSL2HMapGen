@@ -191,16 +191,25 @@ class ErosionState(HMap):
             self.__stats_ext = np.empty(
                 self.shape_stats, dtype=_ErosionStateDataExtendedDtype)
         # re-calc
+        mask_has_water = self.stats['aqua'] > 0
         self.__stats_ext['h'] = self.stats['sedi'] + self.stats['aqua']
         self.__stats_ext['z'] = self.__stats_ext['h'] + self.stats['soil']
         self.__stats_ext['m'] = (
             self.get_par('rho_soil_div_aqua') * self.stats['sedi']
             + self.stats['aqua'])
-        self.__stats_ext['v'] = 0
-        mask_has_water = self.stats['aqua'] > 0
+        self.__stats_ext['v'][~mask_has_water] = 0
+        
+        # # get v from energy ekin
+        # self.__stats_ext['v'][mask_has_water] = (
+        #     2 * self.stats['ekin'][mask_has_water]
+        #     / self.__stats_ext['m'][mask_has_water])**0.5
+        
+        # get v form momentum p
         self.__stats_ext['v'][mask_has_water] = (
-            2 * self.stats['ekin'][mask_has_water]
-            / self.__stats_ext['m'][mask_has_water])**0.5
+            self.stats['p_x'][mask_has_water]**2
+            + self.stats['p_y'][mask_has_water]**2
+        )**0.5 / self.__stats_ext['m'][mask_has_water]
+        self.__stats_ext['v']
         return self.__stats_ext
 
     @property
@@ -357,6 +366,9 @@ class ErosionState(HMap):
         self.stats['aqua'] = self.edges['aqua']
         self.stats['aqua'][1:-1, 1:-1] = (zs - soils)[1:-1, 1:-1]
         self.stats['sedi'] = 0.
+        # speed is zero, so
+        self.stats['p_x' ] = 0.
+        self.stats['p_y' ] = 0.
         self.stats['ekin'] = 0. # is zero because speed is zero
         # self.stats['z'] = self.stats['soil'] + self.stats['aqua']
 

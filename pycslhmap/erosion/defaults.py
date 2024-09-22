@@ -24,24 +24,29 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 #-----------------------------------------------------------------------------#
 
 
+# per rhoS means [per water density (rho) per pixel area (S)]
+#    i.e. translates mass into mass-equivalent water height
+# fluid is water + sediment
+
 _ErosionStateDataDtype : np.dtype = np.dtype([
-    # note: nan will be noted as -1. in below fields
-    ('soil', np.float32),   # [positive] soil (solid) height
-    ('sedi', np.float32),   # [positive] sediment (in water) height
-    ('aqua', np.float32),   # [positive] water (excluding sediment) height
-    ('ekin', np.float32),   # [positive] kinetic energy of water+sediment
-                            #            per area per water density.
+    # note: nan might be noted as -1 in positive fields
+    #       positive means not negative (i.e. incl. zero)
+    ('soil', np.float32),   # [positive][m] soil (solid) height
+    ('sedi', np.float32),   # [positive][m] sediment (in water) height
+    ('aqua', np.float32),   # [positive][m] water (excluding sediment) height
+    ('p_x' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in x direction (NS)
+    ('p_y' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in y direction (WE)
+    ('ekin', np.float32),   # [positive][m^3/s^2] kinetic energy of fluid per rhoS
 ])
 ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
 
 _ErosionStateDataExtendedDtype : np.dtype = np.dtype([
-    # note: nan will be noted as -1. in below fields
-    # per rhoS means [per water density rho per pixel area S]
-    ('z'   , np.float32),   # [positive] total height (z = soil + sedi + aqua)
-    ('h'   , np.float32),   # [positive] fluid height (h =        sedi + aqua)
-    ('m'   , np.float32),   # [positive] fluid mass per rhoS
+    # note: nan might be noted as -1 in positive fields
+    ('z'   , np.float32),   # [positive][m] total height (z = soil + sedi + aqua)
+    ('h'   , np.float32),   # [positive][m] fluid height (h =        sedi + aqua)
+    ('m'   , np.float32),   # [positive][m] fluid mass per rhoS
                             #            (m = rho_soil_div_aqua * sedi + aqua)
-    ('v'   , np.float32),   # [positive] fluid speed
+    ('v'   , np.float32),   # [positive][m/s] fluid speed
 ])
 ErosionStateDataExtendedType = npt.NDArray[_ErosionStateDataExtendedDtype]
 

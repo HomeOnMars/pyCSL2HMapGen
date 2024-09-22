@@ -330,6 +330,8 @@ def _device_add_stats(
     stat['soil'] += stat_add['soil']
     stat['sedi'] += stat_add['sedi']
     stat['aqua'] += stat_add['aqua']
+    stat['p_x' ] += stat_add['p_x' ]
+    stat['p_y' ] += stat_add['p_y' ]
     stat['ekin'] += stat_add['ekin']
     return
 
