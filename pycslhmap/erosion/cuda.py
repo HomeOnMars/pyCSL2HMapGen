@@ -615,6 +615,8 @@ def _erode_rainfall_evolve_cuda_sub(
     stat = stats_sarr[ti, tj]    # by reference
     edges_sarr[ti, tj] = edges_cuda[i, j]
     edge = edges_sarr[ti, tj]
+    not_at_outer_edge : bool_ = not _is_at_outer_edge_cudev(
+        nx, ny, i, j, ti, tj)
     
     # - rain & evaporate -
     # cap rains to the maximum height
@@ -624,7 +626,7 @@ def _erode_rainfall_evolve_cuda_sub(
     
     cuda.syncthreads()
 
-    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+    if not_at_outer_edge:
         # load local
         for k in range(N_ADJ_P1):
             stats_local[k] = stats_sarr[
@@ -654,7 +656,7 @@ def _erode_rainfall_evolve_cuda_sub(
     for k in range(N_ADJ_P1):
         # could use optimization
         stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
-    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+    if not_at_outer_edge:
         stat = _normalize_stat_cudev(stat, edge, z_res)
     else:
         # otherwise,
@@ -669,7 +671,7 @@ def _erode_rainfall_evolve_cuda_sub(
             ] = d_stats_local[k]
 
     # write back
-    if not _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
+    if not_at_outer_edge:
         stats_cuda[i, j, i_layer_write] = stat
     
 
