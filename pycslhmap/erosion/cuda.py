@@ -583,6 +583,8 @@ def _erode_rainfall_evolve_cuda_sub(
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=_ErosionStateDataDtype)
+    edges_sarr = cuda.shared.array(
+        shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=_ErosionStateDataDtype)
 
     # 5 elems **for** this [i, j] location **from** adjacent locations:
     #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
@@ -609,8 +611,10 @@ def _erode_rainfall_evolve_cuda_sub(
     for k in range(N_ADJ_P1):
         d_stats_sarr[ti, tj, k] = zero_stat
     # load local
-    stat = stats_cuda[i, j, i_layer_read]
-    edge = edges_cuda[ i,  j]
+    stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
+    stat = stats_sarr[ti, tj]    # by reference
+    edges_sarr[ti, tj] = edges_cuda[i, j]
+    edge = edges_sarr[ti, tj]
     
     # - rain & evaporate -
     # cap rains to the maximum height
