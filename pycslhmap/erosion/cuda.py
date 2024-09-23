@@ -164,6 +164,19 @@ def _is_at_outer_edge_cudev(
 
 
 @cuda.jit(device=True, fastmath=True)
+def _is_in_inner_center_cudev(
+    nx, ny, i, j, ti, tj,  # in
+) -> bool:
+    """Test if thread is at the inner center ([2:-2, 2:-2])."""
+    if (    ti > 1 and ti < CUDA_TPB_X-2 and i < nx-2
+        and tj > 1 and tj < CUDA_TPB_Y-2 and j < ny-2
+       ):
+        return True
+    return False
+
+
+
+@cuda.jit(device=True, fastmath=True)
 def _is_outside_map_cudev(
     nx, ny, i, j, # in
 ) -> bool:
@@ -673,15 +686,19 @@ def _erode_rainfall_evolve_cuda_sub(
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
     stat = _normalize_stat_cudev(stat, edge, z_res)
     stats_sarr[ti, tj] = stat
-    
-    cuda.syncthreads()
 
+    cuda.syncthreads()
+    
     if not_at_outer_edge:
         # load local
         for k in range(N_ADJ_P1):
             stats_local[k] = stats_sarr[
                 ti + ADJ_OFFSETS[k][0],
                 tj + ADJ_OFFSETS[k][1]]
+    
+    cuda.syncthreads()
+
+    if not_at_outer_edge:
 
         # - move water -
         _move_fluid_cudev(
@@ -706,7 +723,7 @@ def _erode_rainfall_evolve_cuda_sub(
     for k in range(N_ADJ_P1):
         # could use optimization
         stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
-    if not_at_outer_edge:
+    if _is_in_inner_center_cudev(nx, ny, i, j, ti, tj):
         stat = _normalize_stat_cudev(stat, edge, z_res)
     else:
         # otherwise,
