@@ -78,10 +78,7 @@ ADJ_OFFSETS : tuple = (
     ( 0,  1),
 )
 # number of adjacent cells +1 (+1 for the origin cell)
-N_ADJ_P1 : int = 5
-
-
-_ZERO_STAT : npt.NDArray = np.zeros((1,), dtype=_ErosionStateDataDtype)
+N_ADJ_P1 : int = 5    # == len(ADJ_OFFSETS)
 
 
 
@@ -176,6 +173,20 @@ def _is_outside_map_cudev(
 #-----------------------------------------------------------------------------#
 #    Device Functions: Stats calc
 #-----------------------------------------------------------------------------#
+
+
+@cuda.jit(device=True, fastmath=True)
+def _set_stat_zero_cudev(
+    stat: _ErosionStateDataDtype,    # in/out
+):
+    """Init stat to zero."""
+    stat['soil'] = 0
+    stat['sedi'] = 0
+    stat['aqua'] = 0
+    stat['p_x' ] = 0
+    stat['p_y' ] = 0
+    stat['ekin'] = 0
+    return
 
 
 @cuda.jit(device=True, fastmath=True)
@@ -421,7 +432,6 @@ def _move_fluid_cudev(
     d_stats_local,
     # in
     stats_local,
-    zero_stat,
     z_res: float32,
     flow_eff: float32,
     rho_soil_div_aqua: float32,
@@ -443,7 +453,7 @@ def _move_fluid_cudev(
     hws_local[0] = 0
 
     for k in range(N_ADJ_P1):
-        d_stats_local[k] = zero_stat
+        _set_stat_zero_cudev(d_stats_local[k])
 
     if not h0:    # stop if no water
         return
@@ -526,12 +536,9 @@ def _erode_rainfall_evolve_cuda_final(
     #    - should not store the entire grid, just the edges
     #    - *** warning: potential racing condition unfixed
     
-    # - define shared data structure -
-    zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
-    zero_stat = zero_stat_cuda[0]
-    
     # - get thread coordinates -
     nx, ny, _ = stats_cuda.shape
+    
     i, j , ti, tj = _get_coord_cudev()
 
     # - preload data -
@@ -542,10 +549,10 @@ def _erode_rainfall_evolve_cuda_final(
         if _is_at_inner_edge_k_cudev(k, nx, ny, i, j, ti, tj):
             # add everything, just in case
             for n in range(d_stats_cuda.shape[-1]):
-                stat = _add_stats_cudev(stat, d_stats_cuda[i, j, n], edge)
+                _add_stats_cudev(stat, d_stats_cuda[i, j, n], edge)
                 # reset
-                d_stats_cuda[i, j, n] = zero_stat
-            stat = _normalize_stat_cudev(stat, edge, z_res)
+                _set_stat_zero_cudev(d_stats_cuda[i, j, n])
+            _normalize_stat_cudev(stat, edge, z_res)
             break
     # write back
     stats_cuda[i, j, i_layer_read] = stat
@@ -578,7 +585,6 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - define shared data structure -
     # (shared by the threads in the same block)
-    # Note: the 4 corners will be undefined.
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
@@ -591,9 +597,6 @@ def _erode_rainfall_evolve_cuda_sub(
     d_stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB_X, CUDA_TPB_Y, N_ADJ_P1),
         dtype=_ErosionStateDataDtype)
-    # for init
-    zero_stat_cuda = cuda.const.array_like(_ZERO_STAT)
-    zero_stat = zero_stat_cuda[0]
 
     # 5 elems **of/for** adjacent locations **from** this [i, j] location
     stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
@@ -609,7 +612,7 @@ def _erode_rainfall_evolve_cuda_sub(
     # - preload data -
     # init shared temp
     for k in range(N_ADJ_P1):
-        d_stats_sarr[ti, tj, k] = zero_stat
+        _set_stat_zero_cudev(d_stats_sarr[ti, tj, k])
     # load local
     stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
     stat = stats_sarr[ti, tj]    # by reference
@@ -636,7 +639,7 @@ def _erode_rainfall_evolve_cuda_sub(
         # - move water -
         _move_fluid_cudev(
             d_stats_local,
-            stats_local, zero_stat, z_res,
+            stats_local, z_res,
             flow_eff, rho_soil_div_aqua, g,
         )
     
