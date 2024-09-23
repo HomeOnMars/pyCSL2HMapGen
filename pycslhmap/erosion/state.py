@@ -316,7 +316,7 @@ class ErosionState(HMap):
             self.edges[:] = np.nan
             self.edges[mask] = 0
             self.edges['soil'][mask] = self.stats['soil'][mask]
-            self.edges['aqua'][mask] = z_sea - self.edges['soil'][mask]
+            self.edges['aqua'][mask] = (z_sea-z_min) - self.edges['soil'][mask]
             self.edges['aqua'][self.edges['aqua'] <= 0.] = 0.
 
         edges_zs = np.zeros_like(self.edges['soil'])
