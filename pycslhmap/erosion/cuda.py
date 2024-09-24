@@ -66,7 +66,7 @@ CUDA_TPB_X : int = 16
 CUDA_TPB_Y : int = 16
 
 # Adjacent cells location offsets
-#    matches _is_at_outer_edge_idim_cudev().
+#    matches _get_outer_edge_k_cudev().
 #    Do NOT change the first 5 rows.
 #    Every even row and the next odd row must be polar opposite.
 ADJ_OFFSETS : tuple = (
@@ -123,21 +123,42 @@ def _get_coord_cudev() -> tuple[int, int, int, int]:
 
 
 @cuda.jit(device=True, fastmath=True)
-def _is_at_outer_edge_idim_cudev(
-    idim, nx, ny,  # in
-    i, j, ti, tj,  # in
-) -> bool:
-    """Test if thread is at idim edge of the block.
+def _get_outer_edge_idim_cudev(
+    nx, ny, i, j, ti, tj,  # in
+) -> int:
+    """Get which outer edge is the thread on.
 
-    idim is 0 for x/i and 1 for y/j
-
-    ---------------------------------------------------------------------------
+    if none or in the corner, return -1.
     """
-    if (   (idim == 0 and (ti == 0 or ti == CUDA_TPB_X-1 or i == nx-1))
-        or (idim == 1 and (tj == 0 or tj == CUDA_TPB_Y-1 or j == ny-1))
-       ):
-        return True
-    return False
+    on_x_edge = (ti == 0 or ti == CUDA_TPB_X-1 or i == nx-1)
+    on_y_edge = (tj == 0 or tj == CUDA_TPB_Y-1 or j == ny-1)
+    if   on_x_edge and not on_y_edge:
+        return 0
+    elif not on_x_edge and on_y_edge:
+        return 1
+    else:
+        return -1
+
+@cuda.jit(device=True, fastmath=True)
+def _get_outer_edge_k_cudev(
+    nx, ny, i, j, ti, tj,  # in
+) -> int:
+    """Get which outer edge is the thread on.
+
+    if none or in the corner, return -1.
+    """
+    on_x_edge = (ti == 0 or ti == CUDA_TPB_X-1 or i == nx-1)
+    on_y_edge = (tj == 0 or tj == CUDA_TPB_Y-1 or j == ny-1)
+    if   not on_y_edge and (ti == 0):
+        return 1
+    elif not on_y_edge and (ti == CUDA_TPB_X-1 or i == nx-1):
+        return 2
+    elif not on_x_edge and (tj == 0):
+        return 3
+    elif not on_x_edge and (tj == CUDA_TPB_Y-1 or j == ny-1):
+        return 4
+    else:
+        return -1
 
 
 
@@ -147,7 +168,7 @@ def _is_at_outer_edge_cudev(
 ) -> bool:
     """Test if thread is at the edge of the block.
 
-    See also _is_at_outer_edge_idim_cudev(...).
+    See also _is_in_inner_center_cudev(...).
 
     ---------------------------------------------------------------------------
     """
@@ -645,24 +666,18 @@ def _erode_rainfall_evolve_cuda_sub(
         for k in range(N_ADJ_P1):
             # could use optimization
             stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
+        # write back
+        stats_cuda[i, j, i_layer_write] = stat
     else:
         # saving boundary values aside
         # *** Warning: Re-write this if ADJ_OFFSETS is changed! ***
         # Remember that k=0 is the origin pixel, k=1...4 are the adjacent ones
-        idim = 0
-        if _is_at_outer_edge_idim_cudev(idim, nx, ny, i, j, ti, tj):
-            d_stats_cuda[ti, tj, idim] = _add_stats_cudev(
-                d_stats_sarr[ti, tj, 1], d_stats_sarr[ti, tj, 2], edge_nan
-            )
-        idim = 1
-        if _is_at_outer_edge_idim_cudev(idim, nx, ny, i, j, ti, tj):
-            d_stats_cuda[ti, tj, idim] = _add_stats_cudev(
-                d_stats_sarr[ti, tj, 3], d_stats_sarr[ti, tj, 4], edge_nan
-            )
+        idim = _get_outer_edge_idim_cudev(nx, ny, i, j, ti, tj)
+        if idim >= 0:
+            k = _get_outer_edge_k_cudev(nx, ny, i, j, ti, tj)
+            d_stats_cuda[ti, tj, idim] = d_stats_sarr[ti, tj, k]
 
-    # write back
-    if not_at_outer_edge:
-        stats_cuda[i, j, i_layer_write] = stat
+
 
 
 
