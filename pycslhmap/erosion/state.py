@@ -351,7 +351,7 @@ class ErosionState(HMap):
                 -1.,
                 np.where(
                     self.edges['soil'] < z_sea,
-                    z_sea - self.edges['soil'],
+                    (z_sea-z_min) - self.edges['soil'],
                     0.,
                 ),
             )
