@@ -13,7 +13,7 @@ from typing import Self
 import math
 
 # imports (3rd party)
-from numba import jit, prange, cuda, float32, bool_
+from numba import cuda, float32, bool_
 import numpy as np
 from numpy import typing as npt
 
@@ -536,84 +536,6 @@ def _move_fluid_cudev(
 #-----------------------------------------------------------------------------#
 
 
-@cuda.jit(device=True, fastmath=True)
-def _erode_rainfall_evolve_cuda_final_sub(
-    # in/out
-    stats_cuda,
-    d_stats_cuda,
-    # in
-    edges_cuda,
-    nx, ny, i, j,
-    i_layer_read: int,
-    idim: int,
-):
-    if not _is_outside_map_cudev(nx, ny, i, j):
-        # preload data
-        stat = stats_cuda[i, j, i_layer_read]
-        edge = edges_cuda[i, j]
-        # sum
-        _add_stats_cudev(stat, d_stats_cuda[i, j, idim], edge)
-        _set_stat_zero_cudev(d_stats_cuda[i, j, idim])
-        # write back
-        stats_cuda[i, j, i_layer_read] = stat
-    return
-
-
-
-@cuda.jit(fastmath=True)
-def _erode_rainfall_evolve_cuda_final(
-    # in/out
-    stats_cuda,
-    d_stats_cuda,
-    # in
-    edges_cuda,
-    i_layer_read: int,
-    z_res: float32,
-):
-    """Finalizing by adding back the d_stats_cuda to stats_cuda.
-
-    BlockDim is assumed to be 1.
-    *** Warning: Re-write this if ADJ_OFFSETS is changed! ***
-
-    ---------------------------------------------------------------------------
-    """
-    # *** Pending optimization/overhaul ***
-    #    - should not store the entire grid, just the edges
-    #    - *** warning: potential racing condition unfixed
-    
-    # - get thread coordinates -
-    nx, ny, _ = stats_cuda.shape
-    p = cuda.grid(1)
-
-    # Do x first
-    j = p
-    for ki in range(nx//(CUDA_TPB_X-2)):
-        i = ki * (CUDA_TPB_X-2)
-        _erode_rainfall_evolve_cuda_final_sub(
-            stats_cuda, d_stats_cuda,
-            edges_cuda, nx, ny, i, j, i_layer_read, 0,
-        )
-        i += 1
-        _erode_rainfall_evolve_cuda_final_sub(
-            stats_cuda, d_stats_cuda,
-            edges_cuda, nx, ny, i, j, i_layer_read, 0,
-        )
-    # Now do y
-    i = p
-    for ki in range(ny//(CUDA_TPB_Y-2)):
-        j = ki * (CUDA_TPB_X-2)
-        _erode_rainfall_evolve_cuda_final_sub(
-            stats_cuda, d_stats_cuda,
-            edges_cuda, nx, ny, i, j, i_layer_read, 1,
-        )
-        j += 1
-        _erode_rainfall_evolve_cuda_final_sub(
-            stats_cuda, d_stats_cuda,
-            edges_cuda, nx, ny, i, j, i_layer_read, 1,
-        )
-    
-
-
 @cuda.jit(fastmath=True)
 def _erode_rainfall_evolve_cuda_sub(
     # in/out
@@ -743,7 +665,86 @@ def _erode_rainfall_evolve_cuda_sub(
     # write back
     if not_at_outer_edge:
         stats_cuda[i, j, i_layer_write] = stat
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _erode_rainfall_evolve_cuda_final_sub(
+    # in/out
+    stats_cuda,
+    d_stats_cuda,
+    # in
+    edges_cuda,
+    nx, ny, i, j,
+    i_layer_read: int,
+    idim: int,
+):
+    if not _is_outside_map_cudev(nx, ny, i, j):
+        # preload data
+        stat = stats_cuda[i, j, i_layer_read]
+        edge = edges_cuda[i, j]
+        # sum
+        _add_stats_cudev(stat, d_stats_cuda[i, j, idim], edge)
+        _set_stat_zero_cudev(d_stats_cuda[i, j, idim])
+        # write back
+        stats_cuda[i, j, i_layer_read] = stat
+    return
+
+
+
+@cuda.jit(fastmath=True)
+def _erode_rainfall_evolve_cuda_final(
+    # in/out
+    stats_cuda,
+    d_stats_cuda,
+    # in
+    edges_cuda,
+    i_layer_read: int,
+    z_res: float32,
+):
+    """Finalizing by adding back the d_stats_cuda to stats_cuda.
+
+    BlockDim is assumed to be 1.
+    *** Warning: Re-write this if ADJ_OFFSETS is changed! ***
+
+    ---------------------------------------------------------------------------
+    """
+    # *** Pending optimization/overhaul ***
+    #    - should not store the entire grid, just the edges
+    #    - *** warning: potential racing condition unfixed
     
+    # - get thread coordinates -
+    nx, ny, _ = stats_cuda.shape
+    p = cuda.grid(1)
+
+    # Do x first
+    j = p
+    for ki in range(nx//(CUDA_TPB_X-2)):
+        i = ki * (CUDA_TPB_X-2)
+        _erode_rainfall_evolve_cuda_final_sub(
+            stats_cuda, d_stats_cuda,
+            edges_cuda, nx, ny, i, j, i_layer_read, 0,
+        )
+        i += 1
+        _erode_rainfall_evolve_cuda_final_sub(
+            stats_cuda, d_stats_cuda,
+            edges_cuda, nx, ny, i, j, i_layer_read, 0,
+        )
+    # Now do y
+    i = p
+    for ki in range(ny//(CUDA_TPB_Y-2)):
+        j = ki * (CUDA_TPB_X-2)
+        _erode_rainfall_evolve_cuda_final_sub(
+            stats_cuda, d_stats_cuda,
+            edges_cuda, nx, ny, i, j, i_layer_read, 1,
+        )
+        j += 1
+        _erode_rainfall_evolve_cuda_final_sub(
+            stats_cuda, d_stats_cuda,
+            edges_cuda, nx, ny, i, j, i_layer_read, 1,
+        )
+    
+
 
 def _erode_rainfall_evolve_cuda(
     n_step: int,
