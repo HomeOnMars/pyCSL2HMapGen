@@ -127,16 +127,14 @@ def _is_at_outer_edge_idim_cudev(
     idim, nx, ny,  # in
     i, j, ti, tj,  # in
 ) -> bool:
-    """Test if thread is at k-th edge of the block.
+    """Test if thread is at idim edge of the block.
 
-    k-th edge matches ADJ_OFFSETS constant.
+    idim is 0 for x/i and 1 for y/j
 
     ---------------------------------------------------------------------------
     """
-    if (   idim == 0 and ti == 0
-        or idim == 0 and (ti == CUDA_TPB_X-1 or i == nx-1)
-        or idim == 1 and tj == 0
-        or idim == 1 and (tj == CUDA_TPB_Y-1 or j == ny-1)
+    if (   (idim == 0 and (ti == 0 or ti == CUDA_TPB_X-1 or i == nx-1))
+        or (idim == 1 and (tj == 0 or tj == CUDA_TPB_Y-1 or j == ny-1))
        ):
         return True
     return False
@@ -153,10 +151,10 @@ def _is_at_outer_edge_cudev(
 
     ---------------------------------------------------------------------------
     """
-    if (   ti == 0
-        or ti == CUDA_TPB_X-1 or i == nx-1
-        or tj == 0
-        or tj == CUDA_TPB_Y-1 or j == ny-1
+    if (   (ti == 0)
+        or (ti == CUDA_TPB_X-1 or i == nx-1)
+        or (tj == 0)
+        or (tj == CUDA_TPB_Y-1 or j == ny-1)
        ):
         return True
     return False
@@ -168,8 +166,8 @@ def _is_in_inner_center_cudev(
     nx, ny, i, j, ti, tj,  # in
 ) -> bool:
     """Test if thread is at the inner center ([2:-2, 2:-2])."""
-    if (    ti > 1 and ti < CUDA_TPB_X-2 and i < nx-2
-        and tj > 1 and tj < CUDA_TPB_Y-2 and j < ny-2
+    if (    (ti > 1 and ti < CUDA_TPB_X-2 and i < nx-2)
+        and (tj > 1 and tj < CUDA_TPB_Y-2 and j < ny-2)
        ):
         return True
     return False
@@ -643,18 +641,12 @@ def _erode_rainfall_evolve_cuda_sub(
     
     # - write data back -
     # summarize
-    for k in range(N_ADJ_P1):
-        # could use optimization
-        stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
-    if _is_in_inner_center_cudev(nx, ny, i, j, ti, tj):
-        stat = _normalize_stat_cudev(stat, edge, z_res)
+    if not_at_outer_edge:
+        for k in range(N_ADJ_P1):
+            # could use optimization
+            stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
     else:
-        # if at inner edge:
-        #    do nothing
-        # else: is at outer edge
-        #    do below
-        # either way, wait for _erode_rainfall_evolve_cuda_final(...)
-        #    for normalization
+        # saving boundary values aside
         # *** Warning: Re-write this if ADJ_OFFSETS is changed! ***
         # Remember that k=0 is the origin pixel, k=1...4 are the adjacent ones
         idim = 0
