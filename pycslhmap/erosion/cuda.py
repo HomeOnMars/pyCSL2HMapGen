@@ -675,7 +675,7 @@ def _erode_rainfall_evolve_cuda_sub(
         idim = _get_outer_edge_idim_cudev(nx, ny, i, j, ti, tj)
         if idim >= 0:
             k = _get_outer_edge_k_cudev(nx, ny, i, j, ti, tj)
-            d_stats_cuda[ti, tj, idim] = d_stats_sarr[ti, tj, k]
+            d_stats_cuda[i, j, idim] = d_stats_sarr[ti, tj, k]
 
 
 
