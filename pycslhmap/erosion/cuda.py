@@ -730,10 +730,16 @@ def _erode_rainfall_evolve_cuda_final(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 0,
         )
+    # the edge on the other side
+    i = nx-1
+    _erode_rainfall_evolve_cuda_final_sub(
+        stats_cuda, d_stats_cuda,
+        edges_cuda, nx, ny, i, j, i_layer_read, 0,
+    )
     # Now do y
     i = p
     for ki in range(ny//(CUDA_TPB_Y-2)):
-        j = ki * (CUDA_TPB_X-2)
+        j = ki * (CUDA_TPB_Y-2)
         _erode_rainfall_evolve_cuda_final_sub(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 1,
@@ -743,7 +749,12 @@ def _erode_rainfall_evolve_cuda_final(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 1,
         )
-    
+    # the edge on the other side
+    j = ny-1
+    _erode_rainfall_evolve_cuda_final_sub(
+        stats_cuda, d_stats_cuda,
+        edges_cuda, nx, ny, i, j, i_layer_read, 1,
+    )
 
 
 def _erode_rainfall_evolve_cuda(
