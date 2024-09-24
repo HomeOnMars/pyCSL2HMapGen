@@ -307,10 +307,10 @@ class ErosionState(HMap):
 
             # mask: at map border
             mask = np.full(self.stats.shape, False, dtype=np.bool_)
-            mask[ 0] = True
-            mask[-1] = True
-            mask[:,  0] = True
-            mask[:, -1] = True
+            mask[ :2] = True
+            mask[-2:] = True
+            mask[:,  :2] = True
+            mask[:, -2:] = True
 
             # set edges at border
             self.edges[:] = np.nan
