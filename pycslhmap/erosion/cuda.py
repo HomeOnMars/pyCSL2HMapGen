@@ -312,12 +312,13 @@ def _erode_rainfall_init_sub_cuda_sub(
     if ti == 1 and tj == 1:
         flags_sarr[0] = False
 
+    cuda.syncthreads()
+
     if _is_at_outer_edge_cudev(nx, ny, i, j, ti, tj):
         return
         
-    cuda.syncthreads()
-
     # - do math -
+    z_new = zs_sarr[ti, tj]
     done = True
     for ki in range(CUDA_TPB_X + CUDA_TPB_Y - 4):
         # level the lake height within the block
