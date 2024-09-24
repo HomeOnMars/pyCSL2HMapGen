@@ -648,18 +648,23 @@ def _erode_rainfall_evolve_cuda_sub(
     if _is_in_inner_center_cudev(nx, ny, i, j, ti, tj):
         stat = _normalize_stat_cudev(stat, edge, z_res)
     else:
-        # otherwise,
-        #    wait for _erode_rainfall_evolve_cuda_final(...) for normalization
+        # if at inner edge:
+        #    do nothing
+        # else: is at outer edge
+        #    do below
+        # either way, wait for _erode_rainfall_evolve_cuda_final(...)
+        #    for normalization
         # *** Warning: Re-write this if ADJ_OFFSETS is changed! ***
+        # Remember that k=0 is the origin pixel, k=1...4 are the adjacent ones
         idim = 0
         if _is_at_outer_edge_idim_cudev(idim, nx, ny, i, j, ti, tj):
             d_stats_cuda[ti, tj, idim] = _add_stats_cudev(
-                d_stats_sarr[ti, tj, 0], d_stats_sarr[ti, tj, 1], edge_nan
+                d_stats_sarr[ti, tj, 1], d_stats_sarr[ti, tj, 2], edge_nan
             )
         idim = 1
         if _is_at_outer_edge_idim_cudev(idim, nx, ny, i, j, ti, tj):
             d_stats_cuda[ti, tj, idim] = _add_stats_cudev(
-                d_stats_sarr[ti, tj, 2], d_stats_sarr[ti, tj, 3], edge_nan
+                d_stats_sarr[ti, tj, 3], d_stats_sarr[ti, tj, 4], edge_nan
             )
 
     # write back
