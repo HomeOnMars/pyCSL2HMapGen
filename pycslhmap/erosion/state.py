@@ -118,6 +118,10 @@ class ErosionState(HMap):
         self.__pars = deepcopy(pars)
         # extended info on stats
         self.__stats_ext: None|ErosionStateDataExtendedType = None
+        # cycles of erosions ran after initialization
+        self.__i_cycle: int = 0
+        # log keeping
+        self.__log_txt: str = ''
 
 
         # do things
@@ -162,6 +166,14 @@ class ErosionState(HMap):
     @property
     def _pars_kwargs(self) -> dict[str, ParsValueType]:
         return {k: v['value'] for k, v in self.__pars.items()}
+
+    @property
+    def i_cycle(self) -> int:
+        return self.__i_cycle
+        
+    @property
+    def log_txt(self) -> str:
+        return self.__log_txt
 
     @property
     def stats_ext(self) -> ErosionStateDataExtendedType:
@@ -215,6 +227,27 @@ class ErosionState(HMap):
 
 
     #-------------------------------------------------------------------------#
+    #    Log keeping
+    #-------------------------------------------------------------------------#
+
+
+    def get_info(self) -> str:
+        stats_ext = self.stats_ext
+        aq = self.stats['aqua']
+        zs = stats_ext['z']
+        hs = stats_ext['h']
+        ds = stats_ext['d']
+        return f"""
+{self.i_cycle}
+    water lvl: {np.average(aq):9.4f} +/- {np.std(aq):9.4f}  (max {np.max(aq):9.4f})
+    fluid lvl: {np.average(hs):9.4f} +/- {np.std(hs):9.4f}  (max {np.max(hs):9.4f})
+    dirt  lvl: {np.average(ds):9.4f} +/- {np.std(ds):9.4f}  (max {np.max(ds):9.4f})
+    total z  : {np.average(zs):9.4f} +/- {np.std(zs):9.4f}  (max {np.max(zs):9.4f})
+"""
+
+
+
+    #-------------------------------------------------------------------------#
     #    Meta: magic methods
     #-------------------------------------------------------------------------#
 
@@ -244,6 +277,13 @@ class ErosionState(HMap):
             txt += f"    {k:16}: {v['_TYPE_STR']:16} = {v['value']}\n"
             txt += '\n'
 
+        txt += f"""
+
+# Erosion state insight
+    {self.i_cycle = }
+
+"""
+
         return txt
 
 
@@ -252,7 +292,7 @@ class ErosionState(HMap):
         return self.__repr__()
 
 
-
+    
     #-------------------------------------------------------------------------#
     #    Do erosion
     #-------------------------------------------------------------------------#
@@ -287,6 +327,9 @@ class ErosionState(HMap):
         runtime_t0 = now()
         if verbose:
             print(f"Time: ErosionState.init() Starting: {runtime_t0}")
+        self.__i_cycle = 0
+        self.__log_txt = ''
+        
 
         # - init -
         npix_x, npix_y = self.npix_xy
@@ -343,6 +386,7 @@ class ErosionState(HMap):
         # self.stats['z'] = self.stats['soil'] + self.stats['aqua']
 
         # - time it -
+        self.__log_txt += self.get_info()
         runtime_t1 = now()
         if verbose:
             print(
@@ -371,6 +415,7 @@ class ErosionState(HMap):
         runtime_t0 = now()
         if verbose:
             print(f"Time: ErosionState.evolve() Starting: {runtime_t0}")
+        self.__i_cycle += 1
         
         # - run -
         self.stats = sub_func(
@@ -379,6 +424,7 @@ class ErosionState(HMap):
             verbose=verbose, **self._pars_kwargs)
 
         # - time it -
+        self.__log_txt += self.get_info()
         runtime_t1 = now()
         if verbose:
             print(
