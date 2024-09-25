@@ -461,6 +461,17 @@ def _get_d_hs_cudev(
     return d_h_tot
 
 
+@cuda.jit(device=True, fastmath=True)
+def _get_capa_cudev(
+    # in
+    stat,
+    sedi_capa_fac,
+) -> float32:
+    """Get sediment capacity."""
+    capa = sedi_capa_fac * stat['aqua']
+    return capa
+
+
 
 @cuda.jit(device=True, fastmath=True)
 def _move_fluid_cudev(
@@ -472,6 +483,7 @@ def _move_fluid_cudev(
     z_res: float32,
     flow_eff: float32,
     rho_soil_div_aqua: float32,
+    sedi_capa_fac: float32,
     g: float32,
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
@@ -599,6 +611,7 @@ def _erode_rainfall_evolve_cuda_sub(
     evapor_rate : float32,
     flow_eff    : float32,
     rho_soil_div_aqua: float32,
+    sedi_capa_fac: float32,
     g: float32,
 ):
     """Evolving 1 step.
@@ -666,8 +679,8 @@ def _erode_rainfall_evolve_cuda_sub(
         # out
         d_stats_sarr,
         # in
-        stats_sarr, not_at_outer_edge,
-        z_res, flow_eff, rho_soil_div_aqua, g,
+        stats_sarr, not_at_outer_edge, z_res,
+        flow_eff, rho_soil_div_aqua, sedi_capa_fac, g,
     )
 
     cuda.syncthreads()
@@ -829,7 +842,8 @@ def erode_rainfall_evolve_cuda(
         # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
             stats_cuda, edges_cuda, d_stats_cuda, i_layer_read,
-            z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua, g,
+            z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua,
+            sedi_capa_fac, g,
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read
