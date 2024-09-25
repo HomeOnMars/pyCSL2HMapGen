@@ -121,7 +121,7 @@ class ErosionState(HMap):
         # cycles of erosions ran after initialization
         self.__i_cycle: int = 0
         # log keeping
-        self.__log_txt: str = ''
+        self.__log_txts: list[str] = []
 
 
         # do things
@@ -173,7 +173,15 @@ class ErosionState(HMap):
         
     @property
     def log_txt(self) -> str:
-        return self.__log_txt
+        return '\n'.join(self.__log_txts)
+
+    @property
+    def log_txts(self) -> tuple[str]:
+        return tuple(self.__log_txts)
+
+    @property
+    def log_last(self) -> str:
+        return self.__log_txts[-1] if self.__log_txts else ''
 
     @property
     def stats_ext(self) -> ErosionStateDataExtendedType:
@@ -277,13 +285,13 @@ class ErosionState(HMap):
             txt += f"    {k:16}: {v['_TYPE_STR']:16} = {v['value']}\n"
             txt += '\n'
 
-        txt += f"""
+        if self.__log_txts:
+            txt += f"""
 
 # Erosion state insight
-    {self.i_cycle = }
+{self.__log_txts[-1]}
 
 """
-
         return txt
 
 
@@ -328,7 +336,7 @@ class ErosionState(HMap):
         if verbose:
             print(f"Time: ErosionState.init() Starting: {runtime_t0}")
         self.__i_cycle = 0
-        self.__log_txt = ''
+        self.__log_txts = []
         
 
         # - init -
@@ -386,7 +394,7 @@ class ErosionState(HMap):
         # self.stats['z'] = self.stats['soil'] + self.stats['aqua']
 
         # - time it -
-        self.__log_txt += self.get_info()
+        self.__log_txts.append(self.get_info())
         runtime_t1 = now()
         if verbose:
             print(
@@ -424,7 +432,7 @@ class ErosionState(HMap):
             verbose=verbose, **self._pars_kwargs)
 
         # - time it -
-        self.__log_txt += self.get_info()
+        self.__log_txts.append(self.get_info())
         runtime_t1 = now()
         if verbose:
             print(
