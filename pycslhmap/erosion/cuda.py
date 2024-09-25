@@ -78,7 +78,8 @@ ADJ_OFFSETS : tuple = (
     ( 0,  1),
 )
 # number of adjacent cells +1 (+1 for the origin cell)
-N_ADJ_P1 : int = 5    # == len(ADJ_OFFSETS)
+N_ADJ_P1 : int = 5  # == len(ADJ_OFFSETS)
+                    # must be odd number
 
 _NAN_STAT : npt.NDArray = np.full((1,), np.nan, dtype=_ErosionStateDataDtype)
 
@@ -464,9 +465,10 @@ def _get_d_hs_cudev(
 @cuda.jit(device=True, fastmath=True)
 def _move_fluid_cudev(
     # out
-    d_stats_local,
+    d_stats_sarr,
     # in
-    stats_local,
+    stats_sarr,
+    not_at_outer_edge: bool_,
     z_res: float32,
     flow_eff: float32,
     rho_soil_div_aqua: float32,
@@ -474,79 +476,102 @@ def _move_fluid_cudev(
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
-    Init and save the changes to d_stats_local.
+    Write the changes to d_stats_sarr (does not init it).
     """
 
     # - init -
+    # 5 elems **of/for** adjacent locations **from** this [i, j] location
+    stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
+    d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
     hws_local  = cuda.local.array(N_ADJ_P1, dtype=float32)  # weights of amount
     zs_local   = cuda.local.array(N_ADJ_P1, dtype=float32)  # z
+
+    _, _, ti, tj = _get_coord_cudev()
+
     
-    stat = stats_local[0]
-    z0, h0 = _get_z_and_h_cudev(stat)
-    zs_local[0] = z0
-    hws_local[0] = 0
-
-    for k in range(N_ADJ_P1):
-        _set_stat_zero_cudev(d_stats_local[k])
-
-    if not h0:    # stop if no water
-        return
-
-    # # init zs_local
-    for k in range(1, N_ADJ_P1):
-        zk, _ = _get_z_and_h_cudev(stats_local[k])
-        zs_local[k] = zk
-
-    # get d_hs_local
-    d_h_tot = _get_d_hs_cudev(
-        d_hs_local,  # out
-        h0, zs_local, z_res, flow_eff,   # in
-    )
-
-    # parse amount of fluid into amount of sedi, aqua, ekin
-    if d_h_tot: # only do things if something actually moved
+    if not_at_outer_edge:
         
-        # factions that flows away:
-        d_se_fac = stat['sedi'] / h0
-        d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
-        # # kinetic energy always flows fully away with current
-        # d_ek_fac_flow = flow_eff
-        d_ek_fac_flow = d_h_tot / h0
-        d_ek_fac_g = (
-            d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
-        
-        # kinetic energy gain from gravity
-        ek_tot_from_g = float32(0.)
-        for k in range(1, N_ADJ_P1):
-            d_h_k = d_hs_local[k]
-            zk = zs_local[k]
-            ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
-        ek_tot_from_g = d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)
-        #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
-
-        # calc changes from above
+        # load local
         for k in range(N_ADJ_P1):
-            d_h_k = d_hs_local[k]
-            if d_h_k:
-                #d_stats_local[k]['soil'] = 0
-                d_stats_local[k]['sedi'] = d_se_fac * d_h_k
-                d_stats_local[k]['aqua'] = d_aq_fac * d_h_k
-                # gravitational energy gain
-                # Note: a column of fluid of height from h0 to h1 has
-                #    gravitational energy per area per density of
-                #    g * (h1**2 - h0**2)  / 2.
-                if k:
-                    d_ek = (
-                        ek_tot_from_g + d_ek_fac_flow * stat['ekin']
-                    ) * d_h_k / d_h_tot
-                else:
-                    # kinetic energy flow only (no g gain)
-                    # remove d_h_k / d_h_tot (which == -1.)
-                    #    to avoid precision loss
-                    #    resulting in negative stat['ekin']
-                    d_ek = -d_ek_fac_flow * stat['ekin']
-                d_stats_local[k]['ekin'] = d_ek
+            stats_local[k] = stats_sarr[
+                ti + ADJ_OFFSETS[k][0],
+                tj + ADJ_OFFSETS[k][1]]
+        
+        stat = stats_sarr[ti, tj]
+        z0, h0 = _get_z_and_h_cudev(stat)
+        zs_local[0] = z0
+        hws_local[0] = 0
+    
+        for k in range(N_ADJ_P1):
+            _set_stat_zero_cudev(d_stats_local[k])
+    
+        if not h0:    # stop if no water
+            return
+    
+        # init zs_local
+        for k in range(1, N_ADJ_P1):
+            zk, _ = _get_z_and_h_cudev(stats_local[k])
+            zs_local[k] = zk
+    
+        # get d_hs_local
+        d_h_tot = _get_d_hs_cudev(
+            d_hs_local,  # out
+            h0, zs_local, z_res, flow_eff,   # in
+        )
+    
+        # parse amount of fluid into amount of sedi, aqua, ekin
+        if d_h_tot: # only do things if something actually moved
+            
+            # factions that flows away:
+            d_se_fac = stat['sedi'] / h0
+            d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
+            # # kinetic energy always flows fully away with current
+            # d_ek_fac_flow = flow_eff
+            d_ek_fac_flow = d_h_tot / h0
+            d_ek_fac_g = (
+                d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
+            
+            # kinetic energy gain from gravity
+            ek_tot_from_g = float32(0.)
+            for k in range(1, N_ADJ_P1):
+                d_h_k = d_hs_local[k]
+                zk = zs_local[k]
+                ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
+            ek_tot_from_g = d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)
+            #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
+    
+            # calc changes from above
+            for k in range(N_ADJ_P1):
+                d_h_k = d_hs_local[k]
+                if d_h_k:
+                    #d_stats_local[k]['soil'] = 0
+                    d_stats_local[k]['sedi'] = d_se_fac * d_h_k
+                    d_stats_local[k]['aqua'] = d_aq_fac * d_h_k
+                    # gravitational energy gain
+                    # Note: a column of fluid of height from h0 to h1 has
+                    #    gravitational energy per area per density of
+                    #    g * (h1**2 - h0**2)  / 2.
+                    if k:
+                        d_ek = (
+                            ek_tot_from_g + d_ek_fac_flow * stat['ekin']
+                        ) * d_h_k / d_h_tot
+                    else:
+                        # kinetic energy flow only (no g gain)
+                        # remove d_h_k / d_h_tot (which == -1.)
+                        #    to avoid precision loss
+                        #    resulting in negative stat['ekin']
+                        d_ek = -d_ek_fac_flow * stat['ekin']
+                    d_stats_local[k]['ekin'] = d_ek
+    
+    
+        # write the results
+        for k in range(N_ADJ_P1):
+            d_stats_sarr[
+                ti + ADJ_OFFSETS[k][0],
+                tj + ADJ_OFFSETS[k][1],
+                k
+            ] = d_stats_local[k]
     return
     
 
@@ -577,6 +602,9 @@ def _erode_rainfall_evolve_cuda_sub(
     
     z_max:
         z_min is assumed to be zero.
+
+    code here is mostly memory management.
+    See _move_fluid_cudev(...) for actual physics part of the code.
         
     ---------------------------------------------------------------------------
     """
@@ -600,9 +628,6 @@ def _erode_rainfall_evolve_cuda_sub(
     nan_stat_cuda = cuda.const.array_like(_NAN_STAT)
     edge_nan = nan_stat_cuda[0]
 
-    # 5 elems **of/for** adjacent locations **from** this [i, j] location
-    stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
-    d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     
     # - get thread coordinates -
     nx, ny, _ = stats_cuda.shape
@@ -612,10 +637,8 @@ def _erode_rainfall_evolve_cuda_sub(
         return
 
     # - preload data -
-    # init shared temp
     for k in range(N_ADJ_P1):
         _set_stat_zero_cudev(d_stats_sarr[ti, tj, k])
-    # load local
     stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
     stat = stats_sarr[ti, tj]    # by reference
     edges_sarr[ti, tj] = edges_cuda[i, j]
@@ -630,33 +653,15 @@ def _erode_rainfall_evolve_cuda_sub(
     stats_sarr[ti, tj] = stat
 
     cuda.syncthreads()
-    
-    if not_at_outer_edge:
-        # load local
-        for k in range(N_ADJ_P1):
-            stats_local[k] = stats_sarr[
-                ti + ADJ_OFFSETS[k][0],
-                tj + ADJ_OFFSETS[k][1]]
-    
-    cuda.syncthreads()
 
-    if not_at_outer_edge:
-
-        # - move water -
-        _move_fluid_cudev(
-            d_stats_local,
-            stats_local, z_res,
-            flow_eff, rho_soil_div_aqua, g,
-        )
-
-        for k in range(N_ADJ_P1):
-            d_stats_sarr[
-                ti + ADJ_OFFSETS[k][0],
-                tj + ADJ_OFFSETS[k][1],
-                k
-            ] = d_stats_local[k]
-        
-        # *** Add code here! ***
+    # - move water -
+    _move_fluid_cudev(
+        # out
+        d_stats_sarr,
+        # in
+        stats_sarr, not_at_outer_edge,
+        z_res, flow_eff, rho_soil_div_aqua, g,
+    )
 
     cuda.syncthreads()
     
