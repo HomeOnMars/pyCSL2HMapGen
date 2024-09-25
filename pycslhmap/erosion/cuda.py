@@ -479,11 +479,12 @@ def _move_fluid_cudev(
     d_stats_sarr,
     # in
     stats_sarr,
-    not_at_outer_edge: bool_,
-    z_res: float32,
-    flow_eff: float32,
-    rho_soil_div_aqua: float32,
-    sedi_capa_fac: float32,
+    not_at_outer_edge : bool_,
+    z_res : float32,
+    flow_eff      : float32,
+    rho_soil_div_aqua : float32,
+    erosion_eff   : float32,
+    sedi_capa_fac : float32,
     g: float32,
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
@@ -582,6 +583,11 @@ def _move_fluid_cudev(
     
     
     # - erode -
+    if erosion_eff:    # h0 > 0 must be True from before
+        capa = _get_capa_cudev(stat, sedi_capa_fac)
+        d_se = d_stats_local[0]['sedi']
+        d_se += (capa - d_se) * erosion_eff
+        d_stats_local[0]['sedi'] = d_se
 
 
     # write the results
@@ -608,10 +614,11 @@ def _erode_rainfall_evolve_cuda_sub(
     i_layer_read: int,
     z_max: float32,
     z_res: float32,
-    evapor_rate : float32,
-    flow_eff    : float32,
-    rho_soil_div_aqua: float32,
-    sedi_capa_fac: float32,
+    evapor_rate   : float32,
+    flow_eff      : float32,
+    rho_soil_div_aqua : float32,
+    erosion_eff   : float32,
+    sedi_capa_fac : float32,
     g: float32,
 ):
     """Evolving 1 step.
@@ -680,7 +687,8 @@ def _erode_rainfall_evolve_cuda_sub(
         d_stats_sarr,
         # in
         stats_sarr, not_at_outer_edge, z_res,
-        flow_eff, rho_soil_div_aqua, sedi_capa_fac, g,
+        flow_eff, rho_soil_div_aqua,
+        erosion_eff, sedi_capa_fac, g,
     )
 
     cuda.syncthreads()
@@ -801,10 +809,11 @@ def erode_rainfall_evolve_cuda(
     edges : ErosionStateDataType,
     z_max : float32,
     z_res : float32,
-    evapor_rate: float32,
-    flow_eff   : float32,
-    rho_soil_div_aqua: float32,
-    sedi_capa_fac: float32,
+    evapor_rate   : float32,
+    flow_eff      : float32,
+    rho_soil_div_aqua : float32,
+    erosion_eff   : float32,
+    sedi_capa_fac : float32,
     g: float32,
     # ...
     verbose: VerboseType = True,
@@ -843,7 +852,7 @@ def erode_rainfall_evolve_cuda(
         _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
             stats_cuda, edges_cuda, d_stats_cuda, i_layer_read,
             z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua,
-            sedi_capa_fac, g,
+            erosion_eff, sedi_capa_fac, g,
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read

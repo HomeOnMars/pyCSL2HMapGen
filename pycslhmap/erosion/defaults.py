@@ -97,6 +97,15 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(9.8),
         '_DOC_': """Gravitational constant in m/s2.""",
     },
+    'erosion_eff': {
+        '_TYPE': np.float32,
+        'value': np.float32(0.125),
+        '_DOC_': """Erosion/deposition efficiency.
+        .
+            Should be 0. <= erosion_eff <= 1.
+            Setting it to 0. will disable erosion and deposition.
+        .""",
+    },
     'sedi_capa_fac': {
         '_TYPE': np.float32,
         'value': np.float32(0.25),
@@ -123,15 +132,6 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         .
             Must have visco_kin_aqua <= visco_kin_soil.
             It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
-        .""",
-    },
-    'erosion_eff': {
-        '_TYPE': np.float32,
-        'value': np.float32(0.125),
-        '_DOC_': """Erosion/deposition efficiency.
-        .
-            Should be 0. <= erosion_eff <= 1.
-            Setting it to 0. will disable erosion and deposition.
         .""",
     },
     'diffuse_eff': {
