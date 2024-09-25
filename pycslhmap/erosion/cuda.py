@@ -366,7 +366,7 @@ def _erode_rainfall_init_sub_cuda_sub(
 
 
 
-def _erode_rainfall_init_sub_cuda(
+def erode_rainfall_init_sub_cuda(
     soils: npt.NDArray[np.float32],
     edges_zs: npt.NDArray[np.float32],
     z_range: np.float32,
@@ -782,15 +782,16 @@ def _erode_rainfall_evolve_cuda_final(
     )
 
 
-def _erode_rainfall_evolve_cuda(
+def erode_rainfall_evolve_cuda(
     n_step: int,
     stats : ErosionStateDataType,
     edges : ErosionStateDataType,
-    z_max: np.float32,
-    z_res: np.float32,
-    evapor_rate: np.float32,
-    flow_eff: np.float32,
+    z_max : float32,
+    z_res : float32,
+    evapor_rate: float32,
+    flow_eff   : float32,
     rho_soil_div_aqua: float32,
+    sedi_capa_fac: float32,
     g: float32,
     # ...
     verbose: VerboseType = True,

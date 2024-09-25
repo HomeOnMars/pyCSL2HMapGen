@@ -42,10 +42,10 @@ ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
 
 _ErosionStateDataExtendedDtype : np.dtype = np.dtype([
     # note: nan might be noted as -1 in positive fields
-    ('z'   , np.float32),   # [positive][m] total height (z = soil + sedi + aqua)
-    ('h'   , np.float32),   # [positive][m] fluid height (h =        sedi + aqua)
+    ('z'   , np.float32),   # [positive][m] total height (z = soil+sedi+aqua)
+    ('h'   , np.float32),   # [positive][m] fluid height (h =      sedi+aqua)
     ('m'   , np.float32),   # [positive][m] fluid mass per rhoS
-                            #            (m = rho_soil_div_aqua * sedi + aqua)
+                            #        (m = rho_soil_div_aqua * sedi + aqua)
     ('v'   , np.float32),   # [positive][m/s] fluid speed
 ])
 ErosionStateDataExtendedType = npt.NDArray[_ErosionStateDataExtendedDtype]
@@ -73,15 +73,6 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
                 i.e. assuming uniform raining.
         .""",
     },
-    'rain_configs': {
-        '_TYPE': npt.NDArray[np.float32],
-        'value': np.array([2.**(-6)], dtype=np.float32),
-        '_DOC_': """Rain configuration.
-        .
-            ***type***
-            ***Add doc here***
-        .""",
-    },
     'flow_eff': {
         '_TYPE': np.float32,
         'value': np.float32(1.0),
@@ -92,6 +83,39 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             Do NOT touch this unless you know what you are doing.
         .""",
     },
+    'rho_soil_div_aqua': {
+        '_TYPE': np.float32,
+        'value': np.float32(1.5),
+        '_DOC_': """Soil/Sediment density vs water density ratio.
+        .
+            Assuming sediment density are the same as soil,
+            Even if it mixes with the water.
+        .""",
+    },
+    'g': {
+        '_TYPE': np.float32,
+        'value': np.float32(9.8),
+        '_DOC_': """Gravitational constant in m/s2.""",
+    },
+    'sedi_capa_fac': {
+        '_TYPE': np.float32,
+        'value': np.float32(0.25),
+        '_DOC_': """Sediment capacity factor of the river.
+        .
+            Limits the maximum of the sediemnt capacity.
+        .""",
+    },
+
+    
+    'rain_configs': {
+        '_TYPE': npt.NDArray[np.float32],
+        'value': np.array([2.**(-6)], dtype=np.float32),
+        '_DOC_': """Rain configuration.
+        .
+            ***type***
+            ***Add doc here***
+        .""",
+    },
     'visco_kin_range': {
         '_TYPE': tuple[np.float32, np.float32],
         'value': (np.float32(1e-6), np.float32(1.0)),
@@ -99,14 +123,6 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         .
             Must have visco_kin_aqua <= visco_kin_soil.
             It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
-        .""",
-    },
-    'sed_cap_fac': {
-        '_TYPE': np.float32,
-        'value': np.float32(1.0),
-        '_DOC_': """Sediment capacity factor of the river.
-        .
-            Limits the maximum of the sediemnt capacity.
         .""",
     },
     'erosion_eff': {
@@ -158,20 +174,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             So its influence flatten out when v is high.
         .""",
     },
-    'rho_soil_div_aqua': {
-        '_TYPE': np.float32,
-        'value': np.float32(1.5),
-        '_DOC_': """Soil/Sediment density vs water density ratio.
-        .
-            Assuming sediment density are the same as soil,
-            Even if it mixes with the water.
-        .""",
-    },
-    'g': {
-        '_TYPE': np.float32,
-        'value': np.float32(9.8),
-        '_DOC_': """Gravitational constant in m/s2.""",
-    },
+
 }
 
 # finish init DEFAULT_PARS

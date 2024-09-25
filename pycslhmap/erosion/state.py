@@ -44,11 +44,11 @@ from .defaults import (
 )
 from .cuda import (
     CAN_CUDA,
-    _erode_rainfall_init_sub_cuda,
-    _erode_rainfall_evolve_cuda,
+    erode_rainfall_init_sub_cuda,
+    erode_rainfall_evolve_cuda,
 )
 from .nbjit import (
-    _erode_rainfall_init_sub_nbjit,
+    erode_rainfall_init_sub_nbjit,
 )
 from ..hmap import HMap
 from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
@@ -60,12 +60,12 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 _erode_rainfall_init_sub_default = (
-    _erode_rainfall_init_sub_cuda if CAN_CUDA else
-    _erode_rainfall_init_sub_nbjit
+    erode_rainfall_init_sub_cuda if CAN_CUDA else
+    erode_rainfall_init_sub_nbjit
 )
 
 _erode_rainfall_evolve_default = (
-    _erode_rainfall_evolve_cuda if CAN_CUDA else
+    erode_rainfall_evolve_cuda if CAN_CUDA else
     _not_implemented_func
 )
 
@@ -272,8 +272,8 @@ class ErosionState(HMap):
             
         sub_func: function
             Provide the function for the sub process.
-            Choose between _erode_rainfall_init_sub_nbjit()   (CPU)
-                and        _erode_rainfall_init_sub_cuda()    (GPU)
+            Choose between erode_rainfall_init_sub_nbjit()   (CPU)
+                and        erode_rainfall_init_sub_cuda()    (GPU)
     
         Returns
         -------

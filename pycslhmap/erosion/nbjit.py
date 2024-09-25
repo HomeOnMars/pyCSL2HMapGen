@@ -19,7 +19,6 @@ from numpy import typing as npt
 # imports (my libs)
 from .cuda import (
     CAN_CUDA,
-    _erode_rainfall_init_sub_cuda,
 )
 from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
@@ -30,7 +29,7 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
 
 @jit(nopython=True, fastmath=True, parallel=True)
-def _erode_rainfall_init_sub_nbjit(
+def erode_rainfall_init_sub_nbjit(
     soils: npt.NDArray[np.float32],
     edges: npt.NDArray[np.float32],
     z_range: np.float32,
