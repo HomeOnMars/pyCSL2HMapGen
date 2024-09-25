@@ -585,9 +585,15 @@ def _move_fluid_cudev(
     # - erode -
     if erosion_eff:    # h0 > 0 must be True from before
         capa = _get_capa_cudev(stat, sedi_capa_fac)
-        d_se = d_stats_local[0]['sedi']
-        d_se += (capa - d_se) * erosion_eff
-        d_stats_local[0]['sedi'] = d_se
+        k = 0
+        # dd_se: dirt converted from soil to sedi
+        dd_se = min(
+            erosion_eff * (capa - d_stats_local[k]['sedi']),
+            stats_local[k]['soil'],    # cannot dredge through bedrock
+        )
+        d_stats_local[k]['sedi'] += dd_se
+        d_stats_local[k]['soil'] -= dd_se
+        
 
 
     # write the results
