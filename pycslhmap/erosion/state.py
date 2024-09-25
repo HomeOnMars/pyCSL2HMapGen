@@ -94,7 +94,7 @@ class ErosionState(HMap):
         hmap: None|HMap = None,
         pars: ParsType = DEFAULT_PARS,
         do_init: None|bool = None,
-        copy : bool = False,
+        copy : bool = True,
         verbose: VerboseType = True,
     ):
         # init
@@ -215,6 +215,16 @@ class ErosionState(HMap):
         )**0.5 / self.__stats_ext['m'][mask_has_water]
         self.__stats_ext['v']
         return self.__stats_ext
+
+
+
+    @property
+    def delta_height(self) -> npt.NDArray[np.float32]:
+        """Return the change in height after erosion.
+
+        I.e., getting the results.
+        """
+        return self.z_min + self.stats['soil'] + self.stats['sedi'] - self.data
         
     
     
