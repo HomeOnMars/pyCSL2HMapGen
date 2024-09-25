@@ -44,6 +44,7 @@ _ErosionStateDataExtendedDtype : np.dtype = np.dtype([
     # note: nan might be noted as -1 in positive fields
     ('z'   , np.float32),   # [positive][m] total height (z = soil+sedi+aqua)
     ('h'   , np.float32),   # [positive][m] fluid height (h =      sedi+aqua)
+    ('d'   , np.float32),   # [positive][m] dirt  height (d = soil+sedi     )
     ('m'   , np.float32),   # [positive][m] fluid mass per rhoS
                             #        (m = rho_soil_div_aqua * sedi + aqua)
     ('v'   , np.float32),   # [positive][m/s] fluid speed
