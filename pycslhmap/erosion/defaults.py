@@ -99,7 +99,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'erosion_eff': {
         '_TYPE': np.float32,
-        'value': np.float32(0.125),
+        'value': np.float32(0.25),
         '_DOC_': """Erosion/deposition efficiency.
         .
             Should be 0. <= erosion_eff <= 1.
@@ -108,7 +108,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'sedi_capa_fac': {
         '_TYPE': np.float32,
-        'value': np.float32(0.25),
+        'value': np.float32(0.5),
         '_DOC_': """Sediment capacity factor of the river.
         .
             Limits the maximum of the sediemnt capacity.
