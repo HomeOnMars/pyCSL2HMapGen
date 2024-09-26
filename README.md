@@ -16,7 +16,7 @@ written by and for the python-knowing folks.
 - Resample & rescale height maps
 - Extract playable area from world map for CSL2 height maps    (See `Example2_*.ipynb`)
 - Re-insert playable area into world map for CSL2 height maps    (See `Example2_*.ipynb`)
-- (Experimental / Work In Progress) Erosion ~~(Require CUDA, i.e., require `cuda-nvcc cuda-nvrtc` and cuda-compatible GPU (most modern NVIDIA GPUs are))~~
+- (Experimental / Work In Progress) Erosion (require CUDA, i.e., require `cuda-nvcc cuda-nvrtc` and cuda-compatible GPU (most modern NVIDIA GPUs are))
 
 
 ## Dependencies
