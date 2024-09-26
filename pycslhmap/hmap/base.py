@@ -763,7 +763,7 @@ class HMap:
         new_npix_xy  : tuple[int, int], #= (256, 256),
         nslim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
         welim_in_ind : None|tuple[float, float] = None, #= (0., 256.),
-        interp_order : int = 3,
+        interp_order : int = 1,
         interp_mode  : str = 'constant',
         z_min: None|float = None,
         fix_bad_pix: bool = True,

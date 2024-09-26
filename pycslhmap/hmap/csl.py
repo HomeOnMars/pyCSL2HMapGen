@@ -362,9 +362,8 @@ class CSL2HMap(HMap):
         assert self._map_type == 'worldmap'
 
         res = playable_hmap.resample(
-            nslim_in_ind=(0, self.npix),
-            welim_in_ind=(0, self.npix),
-            new_npix_xy=(self.npix_4, self.npix_4), **kwargs,
+            new_npix_xy=(self.npix_4, self.npix_4),
+            **kwargs,
         )
 
         ans = self.copy()
