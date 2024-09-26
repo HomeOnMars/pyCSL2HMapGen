@@ -11,12 +11,12 @@ written by and for the python-knowing folks.
 
 #### Functionalities
 
-- Import `.tiff` data (require `gdal`) (See `Example1_*.ipynb`)
-- Load / save height maps from `.png` files
+- Import `.tiff` data (require `gdal`)    (See `Example1_*.ipynb`)
+- Load / save height maps from `.png` files    (See `Example2_*.ipynb`)
 - Resample & rescale height maps
-- Extract playable area from world map for CSL2 height maps
-- Re-insert playable area into world map for CSL2 height maps
-- \[Not yet completed\] Erosion ~~(optionally require `cuda-nvcc cuda-nvrtc` and cuda-compatible GPU for acceleration)~~
+- Extract playable area from world map for CSL2 height maps    (See `Example2_*.ipynb`)
+- Re-insert playable area into world map for CSL2 height maps    (See `Example2_*.ipynb`)
+- (Experimental / Work In Progress) Erosion ~~(Require CUDA, i.e., require `cuda-nvcc cuda-nvrtc` and cuda-compatible GPU (most modern NVIDIA GPUs are))~~
 
 
 ## Dependencies
