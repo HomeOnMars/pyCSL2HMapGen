@@ -43,7 +43,7 @@ from .defaults import (
     ParsValueType, ParsType,
 )
 from .cuda import (
-    CAN_CUDA,
+    CAN_CUDA, CUDA_TPB_X, CUDA_TPB_Y,
     erode_rainfall_init_sub_cuda,
     erode_rainfall_evolve_cuda,
 )
@@ -94,14 +94,31 @@ class ErosionState(HMap):
         hmap: None|HMap = None,
         pars: ParsType = DEFAULT_PARS,
         do_init: None|bool = None,
+        do_trim: None|bool = False,
         copy : bool = True,
         verbose: VerboseType = True,
     ):
+        """Init.
+
+        do_trim:
+            If we should throw away some cells at edges of the hmap.data
+            so nx-2, ny-2 are multiples of 14
+            This will optimize the process a little bit.
+        """
         # init
         if do_init is None:
             do_init = hmap is not None
+        if do_trim is None:
+            do_trim = hmap is not None
         if hmap is None:
             hmap = HMap()
+        if do_trim:
+            hmap = HMap(hmap)
+            rm_nx = ((hmap.npix_xy[0]-2)%(CUDA_TPB_X-2)+1)
+            rm_nx0 = rm_nx // 2; rm_nx1 = rm_nx - rm_nx0
+            rm_ny = ((hmap.npix_xy[1]-2)%(CUDA_TPB_Y-2)+1)
+            rm_ny0 = rm_ny // 2; rm_ny1 = rm_ny - rm_ny0
+            hmap.data = hmap.data[rm_nx0:-rm_nx1, rm_ny0:-rm_ny1]
 
         
         # variables
@@ -287,6 +304,10 @@ class ErosionState(HMap):
     | {self.z_min:9.2f} | {self.z_sea:9.2f} | {self.z_max:9.2f} \
 | {self.z_res:10.7f} |
 
+# Erosion state insight
+{self.__log_txts[-1] if self.__log_txts else 'N/A'}
+
+
 # Parameters
 
 """
@@ -295,13 +316,6 @@ class ErosionState(HMap):
             txt += f"    {k:16}: {v['_TYPE_STR']:16} = {v['value']}\n"
             txt += '\n'
 
-        if self.__log_txts:
-            txt += f"""
-
-# Erosion state insight
-{self.__log_txts[-1]}
-
-"""
         return txt
 
 
