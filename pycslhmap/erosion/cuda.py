@@ -65,8 +65,8 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 # Example see
 # https://numba.pydata.org/numba-doc/dev/cuda/examples.html#matrix-multiplication
 # 4 <= CUDA_TPB <= 32
-CUDA_TPB_X : int = 16
-CUDA_TPB_Y : int = 16
+CUDA_TPB_X : int = 8
+CUDA_TPB_Y : int = 32
 
 # Adjacent cells location offsets
 #    matches _get_outer_edge_k_cudev().
@@ -881,6 +881,8 @@ def erode_rainfall_evolve_cuda(
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
         (nx, ny, 2), dtype=_ErosionStateDataDtype))
+    
+    erosion_brush = cuda.to_device(erosion_brush)
     
     # - run -
     for s in range(n_step):
