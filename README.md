@@ -1,7 +1,8 @@
 # pyCSL2HMapGen
 
-Height map interpolation, and erosion (Work In Progress).
-For Cities: Skylines 2 (CSL2) Map Editor, or other generic scenarios.
+Height map interpolation and erosion (Work In Progress).
+For Cities: Skylines 2 (CSL2) Map Editor or other generic scenarios.
+
 Python-based.
 Designed for non-serious situations like games.
 **No** guarantees on accuracy.
