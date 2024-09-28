@@ -64,6 +64,9 @@ ParsType = dict[
 DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     # Note: Do NOT edit _TYPE / _DOC_ / etc. in real-time -
     #    they will not be used.
+    
+    # Flow
+    #--------------------------------------------------------------------------
     'evapor_rate': {
         '_TYPE': np.float32,
         'value': np.float32(-2.**(-10)),
@@ -98,13 +101,24 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(9.8),
         '_DOC_': """Gravitational constant in m/s2.""",
     },
+    # Erosion
+    #--------------------------------------------------------------------------
     'erosion_eff': {
         '_TYPE': np.float32,
         'value': np.float32(0.25),
-        '_DOC_': """Erosion/deposition efficiency.
+        '_DOC_': """Overall Erosion/deposition efficiency.
         .
             Should be 0. <= erosion_eff <= 1.
             Setting it to 0. will disable erosion and deposition.
+        .""",
+    },
+    'erosion_brush': {
+        '_TYPE': npt.NDArray[np.float32],
+        'value': np.array([1., 0.25, 0.25, 0.25, 0.25], dtype=np.float32),
+        '_DOC_': """How much to be eroded for the cell and its adjacent cells.
+        .
+            Should have exactly 5 elements. Each 0. <= erosion_brush[i] <= 1.
+            First one is for the cell itself, the rest for the adjacent cells.
         .""",
     },
     'sedi_capa_fac': {
@@ -116,7 +130,8 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         .""",
     },
 
-    
+    # Old / In Reserve / Abandoned
+    #--------------------------------------------------------------------------
     'rain_configs': {
         '_TYPE': npt.NDArray[np.float32],
         'value': np.array([2.**(-6)], dtype=np.float32),

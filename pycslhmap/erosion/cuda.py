@@ -57,6 +57,9 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 #-----------------------------------------------------------------------------#
 
 
+# WARNING: DO NOT CHANGE THE BELOW ALL-CAPS VARIABLES DURING RUN TIME!!!
+
+
 # Threads per block - controls shared memory usage for GPU
 # The block will have (CUDA_TPB_X, CUDA_TPB_Y)-shaped threads
 # Example see
@@ -624,6 +627,7 @@ def _erode_rainfall_evolve_cuda_sub(
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
     erosion_eff   : float32,
+    erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
     g: float32,
 ):
@@ -819,6 +823,7 @@ def erode_rainfall_evolve_cuda(
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
     erosion_eff   : float32,
+    erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
     g: float32,
     # ...
@@ -858,7 +863,7 @@ def erode_rainfall_evolve_cuda(
         _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
             stats_cuda, edges_cuda, d_stats_cuda, i_layer_read,
             z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua,
-            erosion_eff, sedi_capa_fac, g,
+            erosion_eff, erosion_brush, sedi_capa_fac, g,
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read
