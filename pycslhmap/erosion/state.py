@@ -274,10 +274,10 @@ class ErosionState(HMap):
         ds = stats_ext['d']
         return f"""
 {self.i_cycle}
-    water lvl: {np.average(aq):9.4f} +/- {np.std(aq):9.4f}  (max {np.max(aq):9.4f})
-    fluid lvl: {np.average(hs):9.4f} +/- {np.std(hs):9.4f}  (max {np.max(hs):9.4f})
-    dirt  lvl: {np.average(ds):9.4f} +/- {np.std(ds):9.4f}  (max {np.max(ds):9.4f})
-    total z  : {np.average(zs):9.4f} +/- {np.std(zs):9.4f}  (max {np.max(zs):9.4f})
+    water lvl: {np.average(aq):9.4f} +/- {np.std(aq):9.4f}   in [{np.min(aq):9.4f}, {np.max(aq):9.4f}]
+    fluid lvl: {np.average(hs):9.4f} +/- {np.std(hs):9.4f}   in [{np.min(hs):9.4f}, {np.max(hs):9.4f}]
+    dirt  lvl: {np.average(ds):9.4f} +/- {np.std(ds):9.4f}   in [{np.min(ds):9.4f}, {np.max(ds):9.4f}]
+    total z  : {np.average(zs):9.4f} +/- {np.std(zs):9.4f}   in [{np.min(zs):9.4f}, {np.max(zs):9.4f}]
 """
 
 
