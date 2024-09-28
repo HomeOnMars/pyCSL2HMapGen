@@ -524,7 +524,7 @@ def _get_capa_cudev(
     """Get sediment capacity."""
     v = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
     capa = sedi_capa_fac * stat['aqua'] * (
-        sedi_capa_fac_base*v_cap + v) / (sedi_capa_fac_base+1) / v_cap
+        sedi_capa_fac_base*v_cap + v) / ((1+sedi_capa_fac_base)*v_cap)
     return capa
 
 
