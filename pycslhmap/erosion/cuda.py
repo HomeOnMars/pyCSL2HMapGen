@@ -208,6 +208,15 @@ def _is_outside_map_cudev(
 
 
 
+@cuda.jit(device=True, fastmath=True)
+def _get_tkij_cudev(
+    ti, tj, k,  # in
+) -> tuple[float32, float32]:
+    """Get thread index of k-th adjacent cells."""
+    return ti + ADJ_OFFSETS[k][0], tj + ADJ_OFFSETS[k][1]
+
+
+
 #-----------------------------------------------------------------------------#
 #    Device Functions: Stats calc
 #-----------------------------------------------------------------------------#
@@ -482,11 +491,13 @@ def _move_fluid_cudev(
     d_stats_sarr,
     # in
     stats_sarr,
+    ti, tj,
     not_at_outer_edge : bool_,
     z_res : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
     erosion_eff   : float32,
+    erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
     g: float32,
 ):
@@ -496,24 +507,15 @@ def _move_fluid_cudev(
     """
 
     # - init -
+    
     # 5 elems **of/for** adjacent locations **from** this [i, j] location
-    stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
-    d_stats_local = cuda.local.array(N_ADJ_P1, dtype=_ErosionStateDataDtype)
     d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
     hws_local  = cuda.local.array(N_ADJ_P1, dtype=float32)  # weights of amount
     zs_local   = cuda.local.array(N_ADJ_P1, dtype=float32)  # z
 
-    _, _, ti, tj = _get_coord_cudev()
-
     
     if not not_at_outer_edge:
         return
-        
-    # load local
-    for k in range(N_ADJ_P1):
-        stats_local[k] = stats_sarr[
-            ti + ADJ_OFFSETS[k][0],
-            tj + ADJ_OFFSETS[k][1]]
     
     stat = stats_sarr[ti, tj]
     z0, h0 = _get_z_and_h_cudev(stat)
@@ -521,14 +523,16 @@ def _move_fluid_cudev(
     hws_local[0] = 0
 
     for k in range(N_ADJ_P1):
-        _set_stat_zero_cudev(d_stats_local[k])
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        _set_stat_zero_cudev(d_stats_sarr[tki, tkj, k])
 
     if not h0:    # stop if no water
         return
 
     # init zs_local
     for k in range(1, N_ADJ_P1):
-        zk, _ = _get_z_and_h_cudev(stats_local[k])
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
         zs_local[k] = zk
 
 
@@ -563,11 +567,12 @@ def _move_fluid_cudev(
 
         # calc changes from above
         for k in range(N_ADJ_P1):
+            tki, tkj = _get_tkij_cudev(ti, tj, k)
             d_h_k = d_hs_local[k]
             if d_h_k:
-                #d_stats_local[k]['soil'] = 0
-                d_stats_local[k]['sedi'] = d_se_fac * d_h_k
-                d_stats_local[k]['aqua'] = d_aq_fac * d_h_k
+                #d_stats_sarr[tki, tkj, k]['soil'] = 0
+                d_stats_sarr[tki, tkj, k]['sedi'] = d_se_fac * d_h_k
+                d_stats_sarr[tki, tkj, k]['aqua'] = d_aq_fac * d_h_k
                 # gravitational energy gain
                 # Note: a column of fluid of height from h0 to h1 has
                 #    gravitational energy per area per density of
@@ -582,30 +587,28 @@ def _move_fluid_cudev(
                     #    to avoid precision loss
                     #    resulting in negative stat['ekin']
                     d_ek = -d_ek_fac_flow * stat['ekin']
-                d_stats_local[k]['ekin'] = d_ek
+                d_stats_sarr[tki, tkj, k]['ekin'] = d_ek
     
     
     # - erode -
     if erosion_eff:    # h0 > 0 must be True from before
         capa = _get_capa_cudev(stat, sedi_capa_fac)
+        if capa > stat['sedi']:    # erode
+            pass
+        else:    # deposit
+            pass
+            
         k = 0
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        
         # dd_se: dirt converted from soil to sedi
         dd_se = min(
-            erosion_eff * (capa - stats_local[k]['sedi']),
-            stats_local[k]['soil'],    # cannot dredge through bedrock
+            erosion_eff * (capa - stats_sarr[tki, tkj]['sedi']),
+            stats_sarr[tki, tkj]['soil'],    # cannot dredge through bedrock
         )
-        d_stats_local[k]['sedi'] += dd_se
-        d_stats_local[k]['soil'] -= dd_se
+        d_stats_sarr[tki, tkj, k]['sedi'] += dd_se
+        d_stats_sarr[tki, tkj, k]['soil'] -= dd_se
         
-
-
-    # write the results
-    for k in range(N_ADJ_P1):
-        d_stats_sarr[
-            ti + ADJ_OFFSETS[k][0],
-            tj + ADJ_OFFSETS[k][1],
-            k
-        ] = d_stats_local[k]
     return
     
 
@@ -696,9 +699,9 @@ def _erode_rainfall_evolve_cuda_sub(
         # out
         d_stats_sarr,
         # in
-        stats_sarr, not_at_outer_edge, z_res,
+        stats_sarr, ti, tj, not_at_outer_edge, z_res,
         flow_eff, rho_soil_div_aqua,
-        erosion_eff, sedi_capa_fac, g,
+        erosion_eff, erosion_brush, sedi_capa_fac, g,
     )
 
     cuda.syncthreads()
