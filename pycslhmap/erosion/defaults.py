@@ -145,6 +145,18 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             Limits the maximum of the sediemnt capacity.
         .""",
     },
+    'sedi_capa_fac_base': {
+        '_TYPE': np.float32,
+        'value': np.float32(0.5),
+        '_DOC_': """Another Sediment capacity factor, this time for still water only.
+        .
+            0 <= sedi_capa_fac_base
+            Dimensionless.
+                1   means the fastest water can carry twice as much sedi as still water;
+                10  means the fastest water can carry 11/10 as much sedi as still water.
+                0.5 means the fastest water can carry 1.5/0.5 = 3x as much sedi as still water.
+        .""",
+    },
 
     # Old / In Reserve / Abandoned
     #--------------------------------------------------------------------------
