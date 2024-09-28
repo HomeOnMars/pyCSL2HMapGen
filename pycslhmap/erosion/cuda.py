@@ -503,10 +503,12 @@ def _move_fluid_cudev(
     z_res : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
+    v_cap         : float32,
+    dt            : float32,
+    g             : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
-    g: float32,
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
@@ -651,10 +653,12 @@ def _erode_rainfall_evolve_cuda_sub(
     evapor_rate   : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
+    v_cap         : float32,
+    dt            : float32,
+    g             : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
-    g: float32,
 ):
     """Evolving 1 step.
 
@@ -722,8 +726,8 @@ def _erode_rainfall_evolve_cuda_sub(
         d_stats_sarr,
         # in
         stats_sarr, ti, tj, not_at_outer_edge, z_res,
-        flow_eff, rho_soil_div_aqua,
-        erosion_eff, erosion_brush, sedi_capa_fac, g,
+        flow_eff, rho_soil_div_aqua, v_cap, dt, g,
+        erosion_eff, erosion_brush, sedi_capa_fac,
     )
 
     cuda.syncthreads()
@@ -844,13 +848,15 @@ def erode_rainfall_evolve_cuda(
     edges : ErosionStateDataType,
     z_max : float32,
     z_res : float32,
+    pix_widxy     : tuple[float32, float32],
     evapor_rate   : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
+    v_cap         : float32,
+    g             : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
-    g: float32,
     # ...
     verbose: VerboseType = True,
     **kwargs,
@@ -866,6 +872,7 @@ def erode_rainfall_evolve_cuda(
 
     # - init cuda -
     nx, ny = stats.shape
+    lx, ly = pix_widxy
     cuda_bpg, cuda_tpb = get_cuda_bpg_tpb(nx, ny)
 
     cuda_tpb_final = CUDA_TPB_X * CUDA_TPB_Y
@@ -881,7 +888,9 @@ def erode_rainfall_evolve_cuda(
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
         (nx, ny, 2), dtype=_ErosionStateDataDtype))
-    
+
+    # parameters
+    dt = min(lx, ly) / v_cap    # time step
     erosion_brush = cuda.to_device(erosion_brush)
     
     # - run -
@@ -889,8 +898,9 @@ def erode_rainfall_evolve_cuda(
         # *** add more sophisticated non-uniform rain code here! ***
         _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
             stats_cuda, edges_cuda, d_stats_cuda, i_layer_read,
-            z_max, z_res, evapor_rate, flow_eff, rho_soil_div_aqua,
-            erosion_eff, erosion_brush, sedi_capa_fac, g,
+            z_max, z_res, evapor_rate, flow_eff,
+            rho_soil_div_aqua, v_cap, dt, g,
+            erosion_eff, erosion_brush, sedi_capa_fac,
         )
         cuda.synchronize()
         i_layer_read = 1 - i_layer_read

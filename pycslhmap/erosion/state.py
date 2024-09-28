@@ -456,7 +456,7 @@ class ErosionState(HMap):
         # - run -
         self.stats = sub_func(
             n_step, self.stats, self.edges,
-            z_max=self.z_range, z_res=self.z_res,
+            z_max=self.z_range, z_res=self.z_res, pix_widxy = self.pix_widxy,
             verbose=verbose, **self._pars_kwargs)
 
         # - time it -

@@ -33,10 +33,12 @@ _ErosionStateDataDtype : np.dtype = np.dtype([
     #       positive means not negative (i.e. incl. zero)
     ('soil', np.float32),   # [positive][m] soil (solid) height
     ('sedi', np.float32),   # [ signed ][m] sediment (in water) height
+                            #     Warning: could be negative from leftover unfulfilled sedi deposition requests
     ('aqua', np.float32),   # [positive][m] water (excluding sediment) height
     ('p_x' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in x direction (NS)
     ('p_y' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in y direction (WE)
-    ('ekin', np.float32),   # [positive][m^3/s^2] kinetic energy of fluid per rhoS
+    ('ekin', np.float32),   # [ signed ][m^3/s^2] LEFTOVER kinetic energy budget of fluid per rhoS
+                            #     Could be either positive or negative
 ])
 ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
 
@@ -94,6 +96,18 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         .
             Assuming sediment density are the same as soil,
             Even if it mixes with the water.
+        .""",
+    },
+    'v_cap': {
+        '_TYPE': np.float32,
+        'value': np.float32(16.),
+        '_DOC_': """Characteristic velocity for sediment capacity calculations,
+        in m/s.
+        .
+            Must: v_cap > 0.
+            Fluid speed shall not exceed this;
+            any extra kinetic energy will go to stats['ekin'].
+            This also determines the time step dt.
         .""",
     },
     'g': {
@@ -182,17 +196,6 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             else, will make more cliffs
         .""",
     },
-    'v_cap': {
-        '_TYPE': np.float32,
-        'value': np.float32(16.),
-        '_DOC_': """Characteristic velocity for sediment capacity calculations,
-        in m/s.
-        .
-            Used to regulate the velocity in capas calc,
-            So its influence flatten out when v is high.
-        .""",
-    },
-
 }
 
 # finish init DEFAULT_PARS
