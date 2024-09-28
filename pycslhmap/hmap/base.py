@@ -847,7 +847,7 @@ class HMap:
         self,
         new_scale    : float|tuple[float, float, float],
         new_center_ip: tuple[float, float] = (0., 0.),
-        interp_order : int = 3,
+        interp_order : int = 1,
         interp_mode  : str = 'nearest',
         z_min_new: None|float = None,
         z_sea_new: None|float = None,

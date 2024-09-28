@@ -241,7 +241,7 @@ class ErosionState(HMap):
 
         I.e., getting the results.
         """
-        return self.z_min + self.stats['soil'] + self.stats['sedi'] - self.data
+        return self.z_min + self.stats['soil'] - self.data
         
     
     
