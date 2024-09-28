@@ -288,6 +288,7 @@ def _normalize_stat_cudev(
 
     ---------------------------------------------------------------------------
     """
+    
     if stat['aqua'] < z_res:
         # water all evaporated.
         stat['aqua'] = 0 if math.isnan(edge['aqua']) else edge['aqua']
@@ -297,6 +298,12 @@ def _normalize_stat_cudev(
         stat['p_x' ] = 0 if math.isnan(edge['p_x' ]) else edge['p_x' ]
         stat['p_y' ] = 0 if math.isnan(edge['p_y' ]) else edge['p_y' ]
         stat['ekin'] = 0 if math.isnan(edge['ekin']) else edge['ekin']
+    
+    if stat['soil'] < 0:
+        # Fix over erosion by force depositing sediments
+        stat['sedi'] += stat['soil']
+        stat['soil'] = 0
+    
     return stat
 
 
@@ -594,20 +601,35 @@ def _move_fluid_cudev(
     if erosion_eff:    # h0 > 0 must be True from before
         capa = _get_capa_cudev(stat, sedi_capa_fac)
         if capa > stat['sedi']:    # erode
-            pass
+            # get erosion amount for this cell
+            # dd_se: dirt converted from soil to sedi
+            #    here dd_se0 > 0
+            dd_se0 = min(
+                erosion_eff * (capa - stat['sedi']),
+                stat['soil'],    # cannot dredge through bedrock
+            )
+            soil_min_new = stat['soil'] - dd_se0
+            # apply erosion brush
+            for k in range(N_ADJ_P1):
+                tki, tkj = _get_tkij_cudev(ti, tj, k)
+                dd_se = min(
+                    dd_se0,
+                    # cannot dredge through bedrock
+                    stats_sarr[tki, tkj]['soil'],
+                    # do not dredge lower than the central cell
+                    stats_sarr[tki, tkj]['soil'] - soil_min_new,
+                ) * erosion_brush[k]
+                d_stats_sarr[tki, tkj, k]['sedi'] += dd_se
+                d_stats_sarr[tki, tkj, k]['soil'] -= dd_se
         else:    # deposit
-            pass
-            
-        k = 0
-        tki, tkj = _get_tkij_cudev(ti, tj, k)
-        
-        # dd_se: dirt converted from soil to sedi
-        dd_se = min(
-            erosion_eff * (capa - stats_sarr[tki, tkj]['sedi']),
-            stats_sarr[tki, tkj]['soil'],    # cannot dredge through bedrock
-        )
-        d_stats_sarr[tki, tkj, k]['sedi'] += dd_se
-        d_stats_sarr[tki, tkj, k]['soil'] -= dd_se
+            # only deposit the sediments on this cell
+            # to make sure holes can be easily filled
+            # dd_se: dirt converted from soil to sedi
+            #    here dd_se < 0
+            #    erosion_eff should be <= 1.
+            dd_se = erosion_eff * (capa - stats_sarr[tki, tkj]['sedi'])
+            d_stats_sarr[ti, tj, 0]['sedi'] += dd_se
+            d_stats_sarr[ti, tj, 0]['soil'] -= dd_se
         
     return
     

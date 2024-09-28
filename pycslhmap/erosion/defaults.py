@@ -32,7 +32,7 @@ _ErosionStateDataDtype : np.dtype = np.dtype([
     # note: nan might be noted as -1 in positive fields
     #       positive means not negative (i.e. incl. zero)
     ('soil', np.float32),   # [positive][m] soil (solid) height
-    ('sedi', np.float32),   # [positive][m] sediment (in water) height
+    ('sedi', np.float32),   # [ signed ][m] sediment (in water) height
     ('aqua', np.float32),   # [positive][m] water (excluding sediment) height
     ('p_x' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in x direction (NS)
     ('p_y' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in y direction (WE)
@@ -114,10 +114,11 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'erosion_brush': {
         '_TYPE': npt.NDArray[np.float32],
-        'value': np.array([1., 0.25, 0.25, 0.25, 0.25], dtype=np.float32),
+        'value': np.array([0.5, 0.125, 0.125, 0.125, 0.125], dtype=np.float32),
         '_DOC_': """How much to be eroded for the cell and its adjacent cells.
         .
             Should have exactly 5 elements. Each 0. <= erosion_brush[i] <= 1.
+            Sum of which should be 1 for equal speed of erosion and deposition.
             First one is for the cell itself, the rest for the adjacent cells.
         .""",
     },
