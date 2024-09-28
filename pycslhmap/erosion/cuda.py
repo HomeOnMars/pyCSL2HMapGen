@@ -602,23 +602,23 @@ def _move_fluid_cudev(
         capa = _get_capa_cudev(stat, sedi_capa_fac)
         if capa > stat['sedi']:    # erode
             # get erosion amount for this cell
-            # dd_se: dirt converted from soil to sedi
-            #    here dd_se0 > 0
-            dd_se0 = min(
+            # dd_se_ref: erodable dirt from soil to sedi
+            #    here dd_se_ref > 0
+            dd_se_ref = min(
                 erosion_eff * (capa - stat['sedi']),
                 stat['soil'],    # cannot dredge through bedrock
             )
-            soil_min_new = stat['soil'] - dd_se0
+            soil_min_new = stat['soil'] - dd_se_ref * erosion_brush[0]
             # apply erosion brush
             for k in range(N_ADJ_P1):
                 tki, tkj = _get_tkij_cudev(ti, tj, k)
                 dd_se = min(
-                    dd_se0,
+                    dd_se_ref * erosion_brush[k],
                     # cannot dredge through bedrock
                     stats_sarr[tki, tkj]['soil'],
                     # do not dredge lower than the central cell
-                    stats_sarr[tki, tkj]['soil'] - soil_min_new,
-                ) * erosion_brush[k]
+                    max(0, stats_sarr[tki, tkj]['soil'] - soil_min_new),
+                )
                 d_stats_sarr[tki, tkj, k]['sedi'] += dd_se
                 d_stats_sarr[tki, tkj, k]['soil'] -= dd_se
         else:    # deposit

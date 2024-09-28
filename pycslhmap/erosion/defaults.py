@@ -118,6 +118,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         '_DOC_': """How much to be eroded for the cell and its adjacent cells.
         .
             Should have exactly 5 elements. Each 0. <= erosion_brush[i] <= 1.
+            First element must not be zero.
             Sum of which should be 1 for equal speed of erosion and deposition.
             First one is for the cell itself, the rest for the adjacent cells.
         .""",
