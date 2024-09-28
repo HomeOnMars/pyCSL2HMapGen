@@ -409,8 +409,12 @@ class ErosionState(HMap):
         zs, n_cycles = sub_func(
             self.stats['soil'], edges_zs, z_range=z_max-z_min)
 
-        self.stats['aqua'] = zs - self.stats['soil']
-        self.stats['sedi'] = 0.
+        # *** Note: update below when updating _get_capa_cudev() ***
+        #     Getting the initial sediments when speed v=0
+        hs = zs - self.stats['soil']
+        sedi_capa_fac = self.get_par('sedi_capa_fac')
+        self.stats['aqua'] = hs / (1.+sedi_capa_fac)
+        self.stats['sedi'] = hs * sedi_capa_fac/(1.+sedi_capa_fac)
         # speed is zero, so
         self.stats['p_x' ] = 0.
         self.stats['p_y' ] = 0.
