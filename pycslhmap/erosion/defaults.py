@@ -139,10 +139,11 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'sedi_capa_fac': {
         '_TYPE': np.float32,
-        'value': np.float32(0.5),
+        'value': np.float32(1.0),
         '_DOC_': """Sediment capacity factor of the river.
         .
-            Limits the maximum of the sediemnt capacity.
+            Must: sedi_capa_fac >= 0
+            Ratio of max sediment vs existing water.
         .""",
     },
     'sedi_capa_fac_base': {
@@ -150,7 +151,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(0.5),
         '_DOC_': """Another Sediment capacity factor, this time for still water only.
         .
-            0 <= sedi_capa_fac_base
+            Must: sedi_capa_fac_base >= 0
             Dimensionless.
                 1   means the fastest water can carry twice as much sedi as still water;
                 10  means the fastest water can carry 11/10 as much sedi as still water.
