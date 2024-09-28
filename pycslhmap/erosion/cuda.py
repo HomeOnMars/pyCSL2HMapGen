@@ -627,7 +627,7 @@ def _move_fluid_cudev(
             # dd_se: dirt converted from soil to sedi
             #    here dd_se < 0
             #    erosion_eff should be <= 1.
-            dd_se = erosion_eff * (capa - stats_sarr[tki, tkj]['sedi'])
+            dd_se = erosion_eff * (capa - stats_sarr[ti, tj]['sedi'])
             d_stats_sarr[ti, tj, 0]['sedi'] += dd_se
             d_stats_sarr[ti, tj, 0]['soil'] -= dd_se
         
