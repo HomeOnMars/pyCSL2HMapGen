@@ -942,6 +942,7 @@ def erode_rainfall_evolve_cuda(
         pars['n_step']['value'] = steps_config
         steps_config = [{}]
     erosion_brush = cuda.to_device(pars['erosion_brush']['value'])
+    n_step_tot: int = 0
     
     # - run -
     for step_config in steps_config:
@@ -965,6 +966,7 @@ def erode_rainfall_evolve_cuda(
         # run loops
         n_step = pars_v['n_step']
         for s in range(n_step):
+            n_step_tot += 1
             # *** add more sophisticated non-uniform rain code here! ***
             cuda.synchronize()
             _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
@@ -988,7 +990,7 @@ def erode_rainfall_evolve_cuda(
     cuda.synchronize()
     stats = stats_cuda[:, :, i_layer_read].copy_to_host()
     print("WARNING: *** Cuda version of this func not yet complete. ***")
-    return stats
+    return stats, n_step_tot
 
 
 
