@@ -885,21 +885,22 @@ def _erode_rainfall_evolve_cuda_final(
 
 
 def erode_rainfall_evolve_cuda(
-    n_step: int,
+    steps_config: None|int|list[dict|int],
     stats : ErosionStateDataType,
     edges : ErosionStateDataType,
     z_max : float32,
     z_res : float32,
-    pix_widxy     : tuple[float32, float32],
-    evapor_rate   : float32,
-    flow_eff      : float32,
-    rho_soil_div_aqua : float32,
-    v_cap         : float32,
-    g             : float32,
-    erosion_eff   : float32,
-    erosion_brush : npt.NDArray[np.float32],
-    sedi_capa_fac : float32,
-    sedi_capa_fac_base: float32,
+    pix_widxy : tuple[float32, float32],
+    pars  : dict,
+    # evapor_rate   : float32,
+    # flow_eff      : float32,
+    # rho_soil_div_aqua : float32,
+    # v_cap         : float32,
+    # g             : float32,
+    # erosion_eff   : float32,
+    # erosion_brush : npt.NDArray[np.float32],
+    # sedi_capa_fac : float32,
+    # sedi_capa_fac_base: float32,
     # ...
     verbose: VerboseType = True,
     **kwargs,
@@ -931,29 +932,60 @@ def erode_rainfall_evolve_cuda(
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
         (nx, ny, 2), dtype=_ErosionStateDataDtype))
-
-    # parameters
-    dt = min(lx, ly) / v_cap    # time step
-    erosion_brush = cuda.to_device(erosion_brush)
+    
+    
+    # - init pars -
+    # steps_config
+    if steps_config is None: steps_config = [{}]
+    try: iter(steps_config)    # is list?
+    except TypeError:
+        pars['n_step']['value'] = steps_config
+        steps_config = [{}]
+    erosion_brush = cuda.to_device(pars['erosion_brush']['value'])
     
     # - run -
-    for s in range(n_step):
-        # *** add more sophisticated non-uniform rain code here! ***
-        _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
-            stats_cuda, edges_cuda, d_stats_cuda, i_layer_read,
-            z_max, z_res, evapor_rate, flow_eff,
-            rho_soil_div_aqua, v_cap, dt, g,
-            erosion_eff, erosion_brush, sedi_capa_fac, sedi_capa_fac_base,
-        )
-        cuda.synchronize()
-        i_layer_read = 1 - i_layer_read
-        # add back edges
-        _erode_rainfall_evolve_cuda_final[cuda_bpg_final, cuda_tpb_final](
-            stats_cuda, d_stats_cuda, edges_cuda, i_layer_read, z_res,
-        )
-        cuda.synchronize()
+    for step_config in steps_config:
+        # update parameters
+        if isinstance(step_config, dict):
+            for k, v in step_config.items():
+                pars[k]['value'] = v
+                if k == 'erosion_brush':
+                    erosion_brush = cuda.to_device(
+                        pars['erosion_brush']['value'])
+        else:  # assume int
+            if verbose:
+                print("*   Warning: instead of inputing int (assumed),"
+                      + "please consider input steps_config as list of dict"
+                      + "that updates self.pars for clarity.")
+            pars['n_step']['value'] = step_config
+            
+        pars_v = {k: v['value'] for k, v in pars.items()}
+        dt = min(lx, ly) / pars_v['v_cap']    # time step
+        
+        # run loops
+        n_step = pars_v['n_step']
+        for s in range(n_step):
+            # *** add more sophisticated non-uniform rain code here! ***
+            cuda.synchronize()
+            _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
+                stats_cuda, edges_cuda, d_stats_cuda,
+                i_layer_read, z_max, z_res,
+                pars_v['evapor_rate'], pars_v['flow_eff'],
+                pars_v['rho_soil_div_aqua'],
+                pars_v['v_cap'], dt, pars_v['g'],
+                pars_v['erosion_eff'], erosion_brush,
+                pars_v['sedi_capa_fac'],
+                pars_v['sedi_capa_fac_base'],
+            )
+            cuda.synchronize()
+            i_layer_read = 1 - i_layer_read
+            # add back edges
+            _erode_rainfall_evolve_cuda_final[cuda_bpg_final, cuda_tpb_final](
+                stats_cuda, d_stats_cuda, edges_cuda, i_layer_read, z_res,
+            )
     
     # - return -
+    cuda.synchronize()
     stats = stats_cuda[:, :, i_layer_read].copy_to_host()
     print("WARNING: *** Cuda version of this func not yet complete. ***")
     return stats

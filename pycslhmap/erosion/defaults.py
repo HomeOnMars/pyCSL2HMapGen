@@ -69,6 +69,15 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     
     # Flow
     #--------------------------------------------------------------------------
+    'n_step': {
+        '_TYPE': int,
+        'value': None,
+        '_DOC_': """Number of steps for this part of erosion cycle.
+        .
+            None or int.
+            If None, will be selected as 1/8 of the average pixel number per axis.
+        .""",
+    },
     'evapor_rate': {
         '_TYPE': np.float32,
         'value': np.float32(-2.**(-10)),
@@ -220,6 +229,8 @@ for k, v in DEFAULT_PARS.items():
             _type_str = 'NDArray[float32]'
         elif v['_TYPE'] == tuple[np.float32, np.float32]:
             _type_str = 'tuple[float32, float32]'
+        elif v['_TYPE'] == int:
+            _type_str = 'int'
         else:
             raise NotImplementedError(
                 'Unrecognized type in DEFAULT_PARS. Fix me!')

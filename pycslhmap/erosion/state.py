@@ -541,7 +541,7 @@ class ErosionState(HMap):
 
     def evolve(
         self,
-        n_step: int = 4,
+        steps_config: None|int|list[dict|int] = None,
         sub_func: Callable = _erode_rainfall_evolve_default,
         verbose: VerboseType = True,
     ) -> Self:
@@ -549,6 +549,22 @@ class ErosionState(HMap):
         
         Parameters used see self.pars
         Use self.set_par() to change them.
+
+        Parameters
+        ----------
+        steps_config:
+            If None: will auto-run n_step as per self.pars settings;
+            If int : will run this number of steps;
+            If list of dict: will replace self.pars with the settings in the
+                given dict and run
+
+        Returns
+        -------
+        self
+
+        use self.delta_height to get the results for updating hmaps
+        
+        -----------------------------------------------------------------------
         """
         
         # - time it -
@@ -559,9 +575,9 @@ class ErosionState(HMap):
         
         # - run -
         self.stats = sub_func(
-            n_step, self.stats, self.edges,
+            steps_config, self.stats, self.edges,
             z_max=self.z_range, z_res=self.z_res, pix_widxy = self.pix_widxy,
-            verbose=verbose, **self._pars_kwargs)
+            pars = self.__pars, verbose=verbose)
 
         # - time it -
         self.__log_txts.append(self.get_info())
