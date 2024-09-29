@@ -577,13 +577,13 @@ class ErosionState(HMap):
         runtime_t0 = now()
         if verbose:
             print(f"Time: ErosionState.evolve() Starting: {runtime_t0}")
-        self.__i_cycle += 1
         
         # - run -
         self.stats, d_n_step = sub_func(
             steps_config, self.stats, self.edges,
             z_max=self.z_range, z_res=self.z_res, pix_widxy = self.pix_widxy,
             pars = self.__pars, verbose=verbose)
+        self.__i_cycle += 1
         self.__i_step += d_n_step
 
         # - time it -
