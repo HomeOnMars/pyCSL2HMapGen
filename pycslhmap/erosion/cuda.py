@@ -540,8 +540,9 @@ def _move_fluid_cudev(
     z_res : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
-    v_cap         : float32,
     dt            : float32,
+    v_cap         : float32,
+    v_damping     : float32,
     g             : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
@@ -694,8 +695,9 @@ def _erode_rainfall_evolve_cuda_sub(
     evapor_rate   : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
-    v_cap         : float32,
     dt            : float32,
+    v_cap         : float32,
+    v_damping     : float32,
     g             : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
@@ -758,6 +760,16 @@ def _erode_rainfall_evolve_cuda_sub(
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
     stat = _normalize_stat_cudev(stat, edge, z_res)
+    # damping momentum / kinetic energy
+    v_damping_fac = float32(1) - v_damping
+    if stat['aqua']:
+        if not math.isnan(edge['p_x']):
+            stat['p_x'] *= v_damping_fac
+        if not math.isnan(edge['p_y']):
+            stat['p_y'] *= v_damping_fac
+        if not math.isnan(edge['ekin']) and stat['ekin'] > 0:
+            stat['ekin'] *= v_damping_fac**2
+    # done
     stats_sarr[ti, tj] = stat
 
     cuda.syncthreads()
@@ -768,7 +780,7 @@ def _erode_rainfall_evolve_cuda_sub(
         d_stats_sarr,
         # in
         stats_sarr, ti, tj, not_at_outer_edge, z_res,
-        flow_eff, rho_soil_div_aqua, v_cap, dt, g,
+        flow_eff, rho_soil_div_aqua, dt, v_cap, v_damping, g,
         erosion_eff, erosion_brush, sedi_capa_fac, sedi_capa_fac_base,
     )
 
@@ -892,16 +904,6 @@ def erode_rainfall_evolve_cuda(
     z_res : float32,
     pix_widxy : tuple[float32, float32],
     pars  : dict,
-    # evapor_rate   : float32,
-    # flow_eff      : float32,
-    # rho_soil_div_aqua : float32,
-    # v_cap         : float32,
-    # g             : float32,
-    # erosion_eff   : float32,
-    # erosion_brush : npt.NDArray[np.float32],
-    # sedi_capa_fac : float32,
-    # sedi_capa_fac_base: float32,
-    # ...
     verbose: VerboseType = True,
     **kwargs,
 ) -> ErosionStateDataType:
@@ -972,10 +974,15 @@ def erode_rainfall_evolve_cuda(
             _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
                 stats_cuda, edges_cuda, d_stats_cuda,
                 i_layer_read, z_max, z_res,
-                pars_v['evapor_rate'], pars_v['flow_eff'],
+                pars_v['evapor_rate'],
+                pars_v['flow_eff'],
                 pars_v['rho_soil_div_aqua'],
-                pars_v['v_cap'], dt, pars_v['g'],
-                pars_v['erosion_eff'], erosion_brush,
+                dt,
+                pars_v['v_cap'],
+                pars_v['v_damping'],
+                pars_v['g'],
+                pars_v['erosion_eff'],
+                erosion_brush,
                 pars_v['sedi_capa_fac'],
                 pars_v['sedi_capa_fac_base'],
             )

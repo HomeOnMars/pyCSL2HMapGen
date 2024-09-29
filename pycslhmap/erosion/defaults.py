@@ -110,13 +110,22 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     'v_cap': {
         '_TYPE': np.float32,
         'value': np.float32(16.),
-        '_DOC_': """Characteristic velocity for sediment capacity calculations,
-        in m/s.
+        '_DOC_': """Characteristic velocity for sediment capacity calculations, in m/s.
         .
             Must: v_cap > 0.
             Fluid speed shall not exceed this;
             any extra kinetic energy will go to stats['ekin'].
             This also determines the time step dt.
+        .""",
+    },
+    'v_damping': {
+        '_TYPE': np.float32,
+        'value': np.float32(2**(-10)),
+        '_DOC_': """Damping factor for momentums per step.
+        .
+            Must: 0. <= v_damping <= 1.
+            0 means no damping,
+            while 1 means all velocity immediately reset to 0 after each step.
         .""",
     },
     'g': {
