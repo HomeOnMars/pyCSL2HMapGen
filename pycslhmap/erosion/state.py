@@ -242,6 +242,7 @@ class ErosionState(HMap):
         """Return the change in height after erosion.
 
         I.e., getting the results.
+        -----------------------------------------------------------------------
         """
         return self.z_min + self.stats['soil'] - self.data
         
@@ -361,6 +362,67 @@ class ErosionState(HMap):
         
         ax.legend()
         
+        return fig, ax
+
+
+
+    def plot_delta_height(
+        self,
+        fig : None|mpl.figure.Figure = None,
+        ax  : None|mpl.axes.Axes     = None,
+        figsize : tuple[int, int] = (8, 6),
+        norm    : None|str|mpl.colors.Normalize = 'default',
+        cmap    : str|mpl.colors.Colormap ='seismic',
+        add_cbar: bool = True,
+        **kwargs,
+    ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
+        """Plot changes from erosion.
+
+        Parameters
+        ----------
+        fig, ax:
+            if either are None, will generate new figure.
+        ...
+
+        -----------------------------------------------------------------------
+        """
+
+        # init
+        delta_height = self.delta_height
+        if norm == 'default':
+            scale = np.percentile(np.abs(delta_height), (1.-2**(-12))*100.)
+            norm = mpl.colors.Normalize(vmin=-scale, vmax=scale)
+
+        # plot things
+        if fig is None or ax is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        cax  = ax.imshow(self.delta_height, norm=norm, cmap=cmap, **kwargs)
+        if add_cbar:
+            cbar = fig.colorbar(cax)
+            cbar.set_label("$\\Delta h$")
+        ax.set_title("Height Map changes from erosion / deposition")
+
+        # update tick labels
+        tick_locs = tuple([
+            np.linspace(0, self.npix_xy[i], 9, dtype=np.int64)
+            for i in range(2)
+        ])
+        tick_vals = tuple([
+            (0.5 - tick_locs[0] / self.npix_xy[0]      ) * self._map_widxy[0],
+            (      tick_locs[1] / self.npix_xy[1] - 0.5) * self._map_widxy[1],
+        ])
+        tick_labels = tuple([
+            [f'{tick_val:.0f}' for tick_val in tick_vals[i]]
+            for i in range(2)
+        ])
+        tick_labels[0][ 0] = f"NW\n{tick_labels[0][ 0]}"
+        tick_labels[0][-1] = f"{    tick_labels[0][-1]}\n\n\nSW     "
+        tick_labels[1][-1] = f"{    tick_labels[1][-1]}\nSE"
+        ax.set_yticks(tick_locs[0])
+        ax.set_yticklabels(tick_labels[0])
+        ax.set_xticks(tick_locs[1])
+        ax.set_xticklabels(tick_labels[1])
+
         return fig, ax
 
 

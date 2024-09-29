@@ -643,8 +643,8 @@ class HMap:
             fig, ax = plt.subplots(figsize=figsize)
         cax  = ax.imshow(self.data - z_sea, norm=norm, **kwargs)
         if add_cbar:
-            cmap = fig.colorbar(cax)
-            cmap.set_label('Meters above sea level')
+            cbar = fig.colorbar(cax)
+            cbar.set_label("Meters above sea level")
         ax.set_title(
             "Height Map\n" +
             f"(Seabed: {self.z_min:.0f}m above zero point; " +
@@ -725,8 +725,8 @@ class HMap:
             cmap=mpl.cm.coolwarm,
         )
         if add_cbar:
-            cmap = fig.colorbar(cax)
-            cmap.set_label('Meters above sea level')
+            cbar = fig.colorbar(cax)
+            cbar.set_label("Meters above sea level")
         ax.set_title("Height Map")
         
         # update tick labels
