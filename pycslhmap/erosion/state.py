@@ -30,6 +30,8 @@ from copy import deepcopy
 from numba import jit
 import numpy as np
 from numpy import typing as npt
+import matplotlib as mpl
+from matplotlib import pyplot as plt
 
 # imports (my libs)
 from ..util import (
@@ -324,7 +326,45 @@ class ErosionState(HMap):
         return self.__repr__()
 
 
+
+    #-------------------------------------------------------------------------#
+    #    Plotting
+    #-------------------------------------------------------------------------#
+
+
+    def plot_xsec(
+        self,
+        kj: None|int = None,
+        figsize : tuple[int, int] = (13, 6),
+        ylim: tuple[None|int, None|int] = (0, None),
+    ) -> tuple[mpl.figure.Figure, mpl.axes.Axes]:
+        """Plot a cross-section of the soil state for debug purposes."""
+        
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        kj = self.npix_xy[1]//2 if kj is None else kj
     
+        xs = np.linspace(-self.map_widxy[0]/2, self.map_widxy[0]/2, self.npix_xy[0])
+        
+        ax.plot(xs, (self.data - self.z_min)[:, kj], '--', color='C8', label='original')
+        
+        ax.plot(xs, self.stats_ext['z'][:, kj], color='C0', label='aqua')
+        ax.plot(xs, self.stats_ext['d'][:, kj], color='C2', label='sedi')
+        ax.plot(xs, self.stats[ 'soil'][:, kj], color='C1', label='soil')
+        
+        ax.set_xlim(xs[0], xs[-1])
+        ax.set_ylim(ylim)
+
+        ax.set_xlabel("$x$ / m")
+        ax.set_ylabel("Height / m")
+        ax.set_title(f"Cross section at y={self.ind_to_pos((0, kj))[1]:.1f}m")
+        
+        ax.legend()
+        
+        return fig, ax
+
+
+
     #-------------------------------------------------------------------------#
     #    Do erosion
     #-------------------------------------------------------------------------#
