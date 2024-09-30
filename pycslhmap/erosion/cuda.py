@@ -143,6 +143,8 @@ def _get_outer_edge_idim_cudev(
     else:
         return -1
 
+
+
 @cuda.jit(device=True, fastmath=True)
 def _get_outer_edge_k_cudev(
     nx, ny, i, j, ti, tj,  # in
@@ -214,6 +216,17 @@ def _get_tkij_cudev(
 ) -> tuple[float32, float32]:
     """Get thread index of k-th adjacent cells."""
     return ti + ADJ_OFFSETS[k][0], tj + ADJ_OFFSETS[k][1]
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _get_l_cudev(
+    k, lx, ly,  # in
+) -> float32:
+    """Get pixel width (i.e. step width) at k-th direction"""
+    # *** Update below if ADJ_OFFSETS were updated! ***
+    if k==0: return np.nan    # debug
+    return lx if (k==1 or k==2) else ly
 
 
 
@@ -296,6 +309,8 @@ def _get_v_cudev(
     v_cap: float32,
 ) -> float32:
     """Get velocity (in unit of m/s).
+
+    Guarantees v >= 0.
 
     *** To be Updated ***
     """
@@ -515,16 +530,25 @@ def _get_d_hs_cudev(
 def _get_capa_cudev(
     # in
     stat : _ErosionStateDataDtype,
+    slope: float32,
     z_res: float32,
     rho_soil_div_aqua: float32,
     v_cap: float32,
     sedi_capa_fac: float32,
     sedi_capa_fac_base: float32,
+    sedi_capa_fac_slope: float32,
+    sedi_capa_fac_slope_cap: float32,
 ) -> float32:
     """Get sediment capacity."""
     v = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
     capa = sedi_capa_fac * stat['aqua'] * (
-        sedi_capa_fac_base*v_cap + v) / ((1+sedi_capa_fac_base)*v_cap)
+        # v
+        (sedi_capa_fac_base*v_cap + v) / ((1+sedi_capa_fac_base)*v_cap)
+    ) * max(
+        # slope
+        (sedi_capa_fac_slope*sedi_capa_fac_slope_cap + slope) / ((1+sedi_capa_fac_slope)*sedi_capa_fac_slope_cap),
+        float32(0),
+    )
     return capa
 
 
@@ -538,6 +562,8 @@ def _move_fluid_cudev(
     ti, tj,
     not_at_outer_edge : bool_,
     z_res : float32,
+    lx: float32,
+    ly: float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
     dt            : float32,
@@ -548,6 +574,8 @@ def _move_fluid_cudev(
     erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
     sedi_capa_fac_base: float32,
+    sedi_capa_fac_slope: float32,
+    sedi_capa_fac_slope_cap: float32,
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
@@ -587,7 +615,7 @@ def _move_fluid_cudev(
 
     # - move fluids -
 
-    # get d_hs_local
+    # get d_hs_local (positive, == -d_hs_local[0])
     d_h_tot = _get_d_hs_cudev(
         d_hs_local,  # out
         h0, zs_local, z_res, flow_eff,   # in
@@ -641,9 +669,24 @@ def _move_fluid_cudev(
     
     # - erode -
     if erosion_eff:    # h0 > 0 must be True from before
+        # get slope (of the soil surface instead of fluid surface)
+        slope = float32(0.)
+        if d_h_tot:
+            # averaging slope, weighted by movement
+            # note: slope can be negative
+            oi0 = stat['soil']
+            for k in range(1, N_ADJ_P1):
+                tki, tkj = _get_tkij_cudev(ti, tj, k)
+                d_h_k = d_hs_local[k]
+                oik = stats_sarr[tki, tkj]['soil']
+                slope += d_h_k * (oi0 - oik) / _get_l_cudev(k, lx, ly)
+            slope /= d_h_tot
+        # get capa
         capa = _get_capa_cudev(
-            stat, z_res, rho_soil_div_aqua, v_cap,
-            sedi_capa_fac, sedi_capa_fac_base)
+            stat, slope, z_res, rho_soil_div_aqua, v_cap,
+            sedi_capa_fac, sedi_capa_fac_base,
+            sedi_capa_fac_slope, sedi_capa_fac_slope_cap)
+        # do erosion / deposition
         if capa > stat['sedi']:    # erode
             # get erosion amount for this cell
             # dd_se_ref: erodable dirt from soil to sedi
@@ -692,6 +735,8 @@ def _erode_rainfall_evolve_cuda_sub(
     i_layer_read: int,
     z_max: float32,
     z_res: float32,
+    lx: float32,
+    ly: float32,
     evapor_rate   : float32,
     flow_eff      : float32,
     rho_soil_div_aqua : float32,
@@ -703,6 +748,8 @@ def _erode_rainfall_evolve_cuda_sub(
     erosion_brush : npt.NDArray[np.float32],
     sedi_capa_fac : float32,
     sedi_capa_fac_base: float32,
+    sedi_capa_fac_slope: float32,
+    sedi_capa_fac_slope_cap: float32,
 ):
     """Evolving 1 step.
 
@@ -779,9 +826,10 @@ def _erode_rainfall_evolve_cuda_sub(
         # out
         d_stats_sarr,
         # in
-        stats_sarr, ti, tj, not_at_outer_edge, z_res,
+        stats_sarr, ti, tj, not_at_outer_edge, z_res, lx, ly,
         flow_eff, rho_soil_div_aqua, dt, v_cap, v_damping, g,
         erosion_eff, erosion_brush, sedi_capa_fac, sedi_capa_fac_base,
+        sedi_capa_fac_slope, sedi_capa_fac_slope_cap,
     )
 
     cuda.syncthreads()
@@ -973,7 +1021,7 @@ def erode_rainfall_evolve_cuda(
             cuda.synchronize()
             _erode_rainfall_evolve_cuda_sub[cuda_bpg, cuda_tpb](
                 stats_cuda, edges_cuda, d_stats_cuda,
-                i_layer_read, z_max, z_res,
+                i_layer_read, z_max, z_res, lx, ly,
                 pars_v['evapor_rate'],
                 pars_v['flow_eff'],
                 pars_v['rho_soil_div_aqua'],
@@ -985,6 +1033,8 @@ def erode_rainfall_evolve_cuda(
                 erosion_brush,
                 pars_v['sedi_capa_fac'],
                 pars_v['sedi_capa_fac_base'],
+                pars_v['sedi_capa_fac_slope'],
+                pars_v['sedi_capa_fac_slope_cap'],
             )
             cuda.synchronize()
             i_layer_read = 1 - i_layer_read
