@@ -111,6 +111,7 @@ class CSL2HMap(HMap):
                 will copy the metadata in it
                 instead of the supplied parameters.
         ...
+        
         -----------------------------------------------------------------------
         """
 

@@ -406,30 +406,38 @@ class HMap:
     def pos_to_ind_f(
         self, pos: tuple[float, float],
     ) -> tuple[float, float]:
-        """Mapping position to indexes.
+        """Mapping position (XY) to indexes (ij).
         
         e.g. For a 4096**2 14336m wide map,
             it maps [-7168., 7168.] -> [-0.5, 4095.5]
+
+        WARNING: [X, -Y] are mapped to [j, i] due to how images are stored.
+
+        -----------------------------------------------------------------------
         """
         return (
-            _pos_to_ind_f(pos[0], self._map_widxy[0], self.npix_xy[0]),
-            _pos_to_ind_f(pos[1], self._map_widxy[1], self.npix_xy[1]),
+            _pos_to_ind_f(-pos[1], self._map_widxy[1], self.npix_xy[1]),
+            _pos_to_ind_f( pos[0], self._map_widxy[0], self.npix_xy[0]),
         )
 
     def pos_to_ind_d(
         self, pos: tuple[float, float],
         verbose: VerboseType = True,
     ) -> tuple[int, int]:
-        """Mapping position to indexes.
+        """Mapping position (XY) to indexes (ij).
         
         e.g. For a 4096**2 14336m wide map,
             it maps [-7168., 7168.] -> [0, 4095]
+
+        WARNING: [X, -Y] are mapped to [j, i] due to how images are stored.
+
+        -----------------------------------------------------------------------
         """
         ans = [
-            _pos_to_ind_d(pos[i], self._map_widxy[i], self.npix_xy[i])
-            for i in self.ndim
+            _pos_to_ind_d(-pos[1], self._map_widxy[1], self.npix_xy[1]),
+            _pos_to_ind_d( pos[0], self._map_widxy[0], self.npix_xy[0]),
         ]
-        for i in self.ndim:
+        for i in range(self.ndim):
             # safety check
             if ans[i] < 0:
                 ans[i] = 0
@@ -448,14 +456,18 @@ class HMap:
     def ind_to_pos(
         self, ind: tuple[int, int]|tuple[float, float],
     ) -> tuple[float, float]:
-        """Mapping indexes to position.
+        """Mapping indexes (ij) to position (XY).
         
         e.g. For a 4096**2 14336m wide map,
             it maps [0, 4095] -> [-7168 + 3.5/2, 7168 - 3.5/2]
+
+        WARNING: [X, -Y] are mapped to [j, i] due to how images are stored.
+
+        -----------------------------------------------------------------------
         """
         return (
-            _ind_to_pos(ind[0], self._map_widxy[0], self.npix_xy[0]),
-            _ind_to_pos(ind[1], self._map_widxy[1], self.npix_xy[1]),
+            +_ind_to_pos(ind[1], self._map_widxy[1], self.npix_xy[1]),
+            -_ind_to_pos(ind[0], self._map_widxy[0], self.npix_xy[0]),
         )
         
     
