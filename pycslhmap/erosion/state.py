@@ -520,13 +520,13 @@ class ErosionState(HMap):
         # *** Note: update below when updating _get_capa_cudev() ***
         #     Getting the initial sediments when speed v=0
         hs = zs - self.stats['soil']
-        sedi_capa_fac = self.get_par('sedi_capa_fac')
-        sedi_capa_fac_base  = self.get_par('sedi_capa_fac_base')
-        sedi_capa_fac_slope = self.get_par('sedi_capa_fac_slope')
-        capa_fac = sedi_capa_fac * (
-            sedi_capa_fac_base  / (1+sedi_capa_fac_base)
+        capa_fac = self.get_par('capa_fac')
+        capa_fac_v = self.get_par('capa_fac_v')
+        capa_fac_slope = self.get_par('capa_fac_slope')
+        capa_fac = capa_fac * (
+            capa_fac_v / (1+capa_fac_v)
         ) * (
-            sedi_capa_fac_slope / (1+sedi_capa_fac_slope)
+            capa_fac_slope / (1+capa_fac_slope)
         )
         self.stats['aqua'] = hs / (1.+capa_fac)
         self.stats['sedi'] = hs * capa_fac/(1.+capa_fac)

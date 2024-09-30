@@ -155,42 +155,42 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             First one is for the cell itself, the rest for the adjacent cells.
         .""",
     },
-    'sedi_capa_fac': {
+    'capa_fac': {
         '_TYPE': np.float32,
         'value': np.float32(1.0),
         '_DOC_': """Sediment capacity factor of the river.
         .
-            Must: sedi_capa_fac >= 0
+            Must: capa_fac >= 0
             Ratio of max sediment vs existing water.
         .""",
     },
-    'sedi_capa_fac_base': {
+    'capa_fac_v': {
         '_TYPE': np.float32,
         'value': np.float32(1.0),
         '_DOC_': """Another sediment capacity factor, this time for water velocity.
         .
-            Must: sedi_capa_fac_base >= 0
+            Must: capa_fac_v >= 0
             Dimensionless.
-                The fastest water can carry (1+sedi_capa_fac_base)/sedi_capa_fac_base as much sediments as still water.
+                The fastest water can carry (1+capa_fac_v)/capa_fac_v as much sediments as still water.
                 e.g.:
                 1   means the fastest water can carry twice as much sedi as still water;
                 10  means the fastest water can carry 11/10 as much sedi as still water.
                 0.5 means the fastest water can carry 1.5/0.5 = 3x as much sedi as still water.
         .""",
     },
-    'sedi_capa_fac_slope': {
+    'capa_fac_slope': {
         '_TYPE': np.float32,
         'value': np.float32(1.0),
         '_DOC_': """Another sediment capacity factor, this time for slope.
         .
-            Must: sedi_capa_fac_slope >= 0
+            Must: capa_fac_slope >= 0
             Dimensionless.
-                The steepest water can carry (1+sedi_capa_fac_slope)/sedi_capa_fac_slope as much sediments as water on leveled terrain.
+                The steepest water can carry (1+capa_fac_slope)/capa_fac_slope as much sediments as water on leveled terrain.
                 e.g.:
                 (TBD)
         .""",
     },
-    'sedi_capa_fac_slope_cap': {
+    'capa_fac_slope_cap': {
         '_TYPE': np.float32,
         'value': np.float32(1.0),
         '_DOC_': """Maximum slope for sediment capacity factor calculation purposes.
