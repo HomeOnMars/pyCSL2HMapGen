@@ -545,9 +545,9 @@ def _get_capa_cudev(
         # v
         (capa_fac_v*v_cap + v) / ((1+capa_fac_v)*v_cap)
     ) * max(
-        # slope
-        (capa_fac_slope*capa_fac_slope_cap + slope) / (
-            (1+capa_fac_slope)*capa_fac_slope_cap),
+        (    # slope
+            capa_fac_slope*capa_fac_slope_cap + min(slope, capa_fac_slope_cap)
+        ) / ((1+capa_fac_slope)*capa_fac_slope_cap),
         float32(0),  # prevent capa going negative
     )
     return capa
