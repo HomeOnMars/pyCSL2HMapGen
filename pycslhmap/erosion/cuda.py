@@ -586,7 +586,7 @@ def _move_fluid_cudev(
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
-    Write the changes to d_stats_sarr (does not init it).
+    Overwrite the changes to d_stats_sarr (but does not init its every pixel).
 
     Warning: Do not use cuda.syncthreads() in device functions,
         since we are returning early in some cases.
@@ -631,8 +631,8 @@ def _move_fluid_cudev(
         # # kinetic energy always flows fully away with current
         # d_ek_fac_flow = flow_eff
         d_ek_fac_flow = d_h_tot / h0
-        d_ek_fac_g = (
-            d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
+        m_div_h0 = d_aq_fac + rho_soil_div_aqua * d_se_fac
+        d_ek_fac_g = m_div_h0 * g / 2
         
         # kinetic energy gain from gravity
         ek_tot_from_g = float32(0.)
@@ -644,6 +644,25 @@ def _move_fluid_cudev(
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
             
         ek_tot_from_g = d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)
+
+        # momentum gain from gravity
+        d_h_tot_2_div_4 = d_h_tot**2/(N_ADJ_P1-1)
+        for k in range(1, N_ADJ_P1):
+            tki, tkj = _get_tkij_cudev(ti, tj, k)
+            zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+            d_h_k = d_hs_local[k]
+            d_m_k = m_div_h0 * d_h_k
+            # *** Note: check algo & add more rows if ADJ_OFFSETS were expanded ***
+            ek_from_g = d_ek_fac_g * (
+                d_m_k * (2*(z0 - zk) - d_h_k) - d_h_tot_2_div_4)
+            if ek_from_g > 0 and d_m_k > 0:
+                d_p = (2 * d_m_k * ek_from_g)**0.5
+                ek_tot_from_g -= ek_from_g
+                if   k == 1: d_stats_sarr[tki, tkj, k]['p_x'] -= d_p
+                elif k == 2: d_stats_sarr[tki, tkj, k]['p_x'] += d_p
+                elif k == 3: d_stats_sarr[tki, tkj, k]['p_y'] -= d_p
+                elif k == 4: d_stats_sarr[tki, tkj, k]['p_y'] += d_p
+        
         #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
 
         # calc changes from above
