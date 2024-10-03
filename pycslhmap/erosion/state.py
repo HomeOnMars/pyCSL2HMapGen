@@ -236,7 +236,18 @@ class ErosionState(HMap):
         self.__stats_ext['v'][mask_has_water] = (
             self.stats['p_x'][mask_has_water]**2
             + self.stats['p_y'][mask_has_water]**2
-        )**0.5 / self.__stats_ext['m'][mask_has_water]
+            + (
+                2*self.__stats_ext['m'][mask_has_water]
+                * self.stats[   'ekin'][mask_has_water]
+        ))    # m^2 v^2
+        self.__stats_ext['v'][mask_has_water] = np.where(
+            self.__stats_ext['v'][mask_has_water] > 0,
+            self.__stats_ext['v'][mask_has_water],
+            0.
+        )
+        self.__stats_ext['v'][mask_has_water] = (
+            self.__stats_ext['v'][mask_has_water]**0.5
+            / self.__stats_ext['m'][mask_has_water])
         self.__stats_ext['v']
         return self.__stats_ext
 
