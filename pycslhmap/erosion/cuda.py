@@ -489,7 +489,7 @@ def erode_rainfall_init_sub_cuda(
 @cuda.jit(device=True, fastmath=True)
 def _get_d_hs_cudev(
     # out
-    d_hs_sarr,
+    d_hs_local,
     # in
     stat,
     stats_sarr,
@@ -517,22 +517,18 @@ def _get_d_hs_cudev(
         d_h_k2 = z0 - zk
         if d_h_k1 > d_h_k2:
             k = 2*ki+1
-            k0 = 2*ki+2
+            d_hs_local[2*ki+2] = float32(0.)
         else:
             k = 2*ki+2
-            k0 = 2*ki+1
-            
-        tki, tkj = _get_tkij_cudev(ti, tj, k0)
-        d_hs_sarr[tki, tkj, k0] = float32(0.)
-        
+            d_hs_local[2*ki+1] = float32(0.)
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
         d_h_k = min((z0 - zk)/3*flow_eff, h0/2)
         if d_h_k < z_res: d_h_k = float32(0.)
-        d_hs_sarr[tki, tkj, k] = d_h_k
+        d_hs_local[k] = d_h_k
         d_h_tot += d_h_k
 
-    d_hs_sarr[ti, tj, 0] = -d_h_tot
+    d_hs_local[0] = -d_h_tot
     return d_h_tot
 
 
@@ -568,7 +564,6 @@ def _get_capa_cudev(
 def _move_fluid_cudev(
     # out
     d_stats_sarr,
-    d_hs_sarr,
     # in
     stats_sarr,
     ti, tj,
@@ -592,25 +587,26 @@ def _move_fluid_cudev(
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
     Write the changes to d_stats_sarr (does not init it).
-
-    Warning: Do not use cuda.syncthreads() in device functions,
-        since we are returning early in some cases.
-    
     ---------------------------------------------------------------------------
     """
 
     # - init -
+    
+    # 5 elems **of/for** adjacent locations **from** this [i, j] location
+    d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
+    hws_local  = cuda.local.array(N_ADJ_P1, dtype=float32)  # weights of amount
+
     
     if not not_at_outer_edge:
         return
     
     stat = stats_sarr[ti, tj]
     z0, h0 = _get_z_and_h_cudev(stat)
+    hws_local[0] = 0
 
     for k in range(N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         _set_stat_zero_cudev(d_stats_sarr[tki, tkj, k])
-        d_hs_sarr[tki, tkj, k] = float32(0)
 
     if not h0:    # stop if no water
         return
@@ -618,9 +614,9 @@ def _move_fluid_cudev(
 
     # - move fluids -
 
-    # calc movement towards adjacet cells
+    # get d_hs_local (positive, == -d_hs_local[0])
     d_h_tot = _get_d_hs_cudev(
-        d_hs_sarr,  # out
+        d_hs_local,  # out
         stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
     )
 
@@ -641,7 +637,7 @@ def _move_fluid_cudev(
         for k in range(1, N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
             zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
-            d_h_k = d_hs_sarr[tki, tkj, k]
+            d_h_k = d_hs_local[k]
             
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
             
@@ -651,7 +647,7 @@ def _move_fluid_cudev(
         # calc changes from above
         for k in range(N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
-            d_h_k = d_hs_sarr[tki, tkj, k]
+            d_h_k = d_hs_local[k]
             if d_h_k:
                 #d_stats_sarr[tki, tkj, k]['soil'] = 0
                 d_stats_sarr[tki, tkj, k]['sedi'] = d_se_fac * d_h_k
@@ -683,7 +679,7 @@ def _move_fluid_cudev(
             oi0 = stat['soil']
             for k in range(1, N_ADJ_P1):
                 tki, tkj = _get_tkij_cudev(ti, tj, k)
-                d_h_k = d_hs_sarr[tki, tkj, k]
+                d_h_k = d_hs_local[k]
                 oik = stats_sarr[tki, tkj]['soil']
                 slope += d_h_k * (oi0 - oik) / _get_l_cudev(k, lx, ly)
             slope /= d_h_tot
@@ -787,11 +783,6 @@ def _erode_rainfall_evolve_cuda_sub(
         shape=(CUDA_TPB_X, CUDA_TPB_Y, N_ADJ_P1),
         dtype=_ErosionStateDataDtype)
 
-    # not all initalized- do not use outside of _move_fluid_cudev() func
-    d_hs_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_X, CUDA_TPB_Y, N_ADJ_P1),
-        dtype=float32)
-
     # # for disregarding edge
     # nan_stat_cuda = cuda.const.array_like(_NAN_STAT)
     # edge_nan = nan_stat_cuda[0]
@@ -836,7 +827,6 @@ def _erode_rainfall_evolve_cuda_sub(
     _move_fluid_cudev(
         # out
         d_stats_sarr,
-        d_hs_sarr,
         # in
         stats_sarr, ti, tj, not_at_outer_edge, z_res, lx, ly,
         flow_eff, rho_soil_div_aqua, dt, v_cap, v_damping, g,
