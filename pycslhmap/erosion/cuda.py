@@ -491,8 +491,9 @@ def _get_d_hs_cudev(
     # out
     d_hs_local,
     # in
-    h0: float32,
-    zs_local,
+    stat,
+    stats_sarr,
+    ti, tj,
     z_res: float32,
     flow_eff: float32,
 ) -> float32:
@@ -504,19 +505,24 @@ def _get_d_hs_cudev(
     
     ---------------------------------------------------------------------------
     """
-    z0 = zs_local[0]
+    z0, h0 = _get_z_and_h_cudev(stat)
     d_h_tot = float32(0.)
     k = 0
     for ki in range(N_ADJ_P1//2):
-        d_h_k1 = z0 - zs_local[2*ki+1]
-        d_h_k2 = z0 - zs_local[2*ki+2]
+        tki, tkj = _get_tkij_cudev(ti, tj, 2*ki+1)
+        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+        d_h_k1 = z0 - zk
+        tki, tkj = _get_tkij_cudev(ti, tj, 2*ki+2)
+        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+        d_h_k2 = z0 - zk
         if d_h_k1 > d_h_k2:
             k = 2*ki+1
             d_hs_local[2*ki+2] = float32(0.)
         else:
             k = 2*ki+2
             d_hs_local[2*ki+1] = float32(0.)
-        zk = zs_local[k]
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
         d_h_k = min((z0 - zk)/3*flow_eff, h0/2)
         if d_h_k < z_res: d_h_k = float32(0.)
         d_hs_local[k] = d_h_k
@@ -589,7 +595,6 @@ def _move_fluid_cudev(
     # 5 elems **of/for** adjacent locations **from** this [i, j] location
     d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
     hws_local  = cuda.local.array(N_ADJ_P1, dtype=float32)  # weights of amount
-    zs_local   = cuda.local.array(N_ADJ_P1, dtype=float32)  # z
 
     
     if not not_at_outer_edge:
@@ -597,7 +602,6 @@ def _move_fluid_cudev(
     
     stat = stats_sarr[ti, tj]
     z0, h0 = _get_z_and_h_cudev(stat)
-    zs_local[0] = z0
     hws_local[0] = 0
 
     for k in range(N_ADJ_P1):
@@ -607,19 +611,13 @@ def _move_fluid_cudev(
     if not h0:    # stop if no water
         return
 
-    # init zs_local
-    for k in range(1, N_ADJ_P1):
-        tki, tkj = _get_tkij_cudev(ti, tj, k)
-        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
-        zs_local[k] = zk
-
 
     # - move fluids -
 
     # get d_hs_local (positive, == -d_hs_local[0])
     d_h_tot = _get_d_hs_cudev(
         d_hs_local,  # out
-        h0, zs_local, z_res, flow_eff,   # in
+        stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
     )
 
     # parse amount of fluid into amount of sedi, aqua, ekin
@@ -637,9 +635,12 @@ def _move_fluid_cudev(
         # kinetic energy gain from gravity
         ek_tot_from_g = float32(0.)
         for k in range(1, N_ADJ_P1):
+            tki, tkj = _get_tkij_cudev(ti, tj, k)
+            zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
-            zk = zs_local[k]
+            
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
+            
         ek_tot_from_g = d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)
         #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
 
