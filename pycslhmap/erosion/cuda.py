@@ -587,6 +587,10 @@ def _move_fluid_cudev(
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
     Write the changes to d_stats_sarr (does not init it).
+
+    Warning: Do not use cuda.syncthreads() in device functions,
+        since we are returning early in some cases.
+
     ---------------------------------------------------------------------------
     """
 
@@ -594,7 +598,6 @@ def _move_fluid_cudev(
     
     # 5 elems **of/for** adjacent locations **from** this [i, j] location
     d_hs_local = cuda.local.array(N_ADJ_P1, dtype=float32)  # amount of flows
-    hws_local  = cuda.local.array(N_ADJ_P1, dtype=float32)  # weights of amount
 
     
     if not not_at_outer_edge:
@@ -602,7 +605,6 @@ def _move_fluid_cudev(
     
     stat = stats_sarr[ti, tj]
     z0, h0 = _get_z_and_h_cudev(stat)
-    hws_local[0] = 0
 
     for k in range(N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
