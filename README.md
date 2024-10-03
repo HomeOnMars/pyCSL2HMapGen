@@ -5,9 +5,9 @@ For Cities: Skylines 2 (CSL2) Map Editor or other generic gameplay scenarios.
 
 Python-based.
 Designed for non-serious situations like games.
-**No guarantees whatsoever** on physical accuracy of the simulations.
+**No guarantees whatsoever** on the physical accuracy of the erosion process.
 
-See the `Example*.ipynb` jupyter notebooks for a quick guide!
+See the `Example*.ipynb` jupyter notebooks for a quick guide.
 
 
 ## Functionalities
