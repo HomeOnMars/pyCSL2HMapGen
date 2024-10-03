@@ -652,7 +652,8 @@ def _move_fluid_cudev(
             zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
             d_m_k = m_div_h0 * d_h_k
-            # *** Note: check algo & add more rows if ADJ_OFFSETS were expanded ***
+            # *** Check algo & add more rows if ADJ_OFFSETS were expanded ***
+            # *** NOTE: Need to update below kinetic energy gain calc ***
             ek_from_g = d_ek_fac_g * (
                 d_m_k * (2*(z0 - zk) - d_h_k) - d_h_tot_2_div_4)
             if ek_from_g > 0 and d_m_k > 0:
