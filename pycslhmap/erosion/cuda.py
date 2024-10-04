@@ -871,7 +871,6 @@ def _erode_rainfall_evolve_cuda_sub(
     # - rain & evaporate -
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
-    stat = _normalize_stat_cudev(stat, edge, z_res, rho_soil_div_aqua)
     # damping momentum / kinetic energy
     v_damping_fac = float32(1) - v_damping
     if stat['aqua']:
@@ -882,6 +881,7 @@ def _erode_rainfall_evolve_cuda_sub(
         if not math.isnan(edge['ekin']) and stat['ekin'] > 0:
             stat['ekin'] *= v_damping_fac**2
     # done
+    stat = _normalize_stat_cudev(stat, edge, z_res, rho_soil_div_aqua)
     stats_sarr[ti, tj] = stat
 
     cuda.syncthreads()
