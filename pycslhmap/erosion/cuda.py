@@ -301,6 +301,15 @@ def _get_m_cudev(
 
 
 @cuda.jit(device=True, fastmath=True)
+def _get_p_cudev(
+    stat : _ErosionStateDataDtype,  # in
+) -> float32:
+    """Get momentum per rhoS."""
+    return math.sqrt(stat['p_x']**2 + stat['p_y']**2)
+
+
+
+@cuda.jit(device=True, fastmath=True)
 def _get_v_cudev(
     # in
     stat : _ErosionStateDataDtype,
@@ -311,22 +320,23 @@ def _get_v_cudev(
     """Get velocity (in unit of m/s).
 
     Guarantees v >= 0.
+    Assuming normalized (i.e. either ekin or p to be zero.)
 
     *** To be Updated ***
     """
     m = _get_m_cudev(stat, rho_soil_div_aqua)
-    # *** UPDATE BELOW ALGO AFTER SWITCHING TO P_X & P_Y!!! ***
-    v = (2 * max(stat['ekin'], 0) / m)**0.5 if m >= z_res else float32(0)
-    v = min(v, v_cap)
-    return v
+    return min(_get_p_cudev(stat) / m, v_cap) if m >= z_res else float32(0)
 
 
 
 @cuda.jit(device=True, fastmath=True)
 def _normalize_stat_cudev(
-    stat : _ErosionStateDataDtype,  # in/out
-    edge : _ErosionStateDataDtype,  # in
-    z_res: float32,  # in
+    # in/out
+    stat : _ErosionStateDataDtype,
+    # in
+    edge : _ErosionStateDataDtype,
+    z_res: float32,
+    rho_soil_div_aqua: float32,
 ) -> _ErosionStateDataDtype:
     """Normalize stat var.
     
@@ -344,6 +354,25 @@ def _normalize_stat_cudev(
         stat['p_x' ] = 0 if math.isnan(edge['p_x' ]) else edge['p_x' ]
         stat['p_y' ] = 0 if math.isnan(edge['p_y' ]) else edge['p_y' ]
         stat['ekin'] = 0 if math.isnan(edge['ekin']) else edge['ekin']
+    else:
+        # normalize energy & momentum
+        if not math.isnan(edge['ekin']):
+            stat['ekin'] = edge['ekin']
+        else:
+            p = _get_p_cudev(stat)
+            if p > 0:
+                m_2 = _get_m_cudev(stat, rho_soil_div_aqua) * 2
+                dp = math.sqrt(m_2 * abs(stat['ekin']))
+                if stat['ekin'] < 0: dp = -dp
+                stat['ekin'] = 0
+                if dp < -p:
+                    # cap the removal of energy so p doesn't go negative
+                    stat['ekin'] = ((dp + p)**2 / m_2) if m_2 > z_res else 0
+                    dp = -p
+
+                p_fac = max((1+dp/p), 0)    # positive
+                if math.isnan(edge['p_x']): stat['p_x'] *= p_fac
+                if math.isnan(edge['p_y']): stat['p_y'] *= p_fac
     
     if stat['soil'] < 0:
         # Fix over erosion by force depositing sediments
@@ -658,7 +687,7 @@ def _move_fluid_cudev(
                 d_m_k * (2*(z0 - zk) - d_h_k) - d_h_tot_2_div_4)
             if ek_from_g > 0 and d_m_k > 0:
                 # momentum gain from gravity
-                d_p = (2 * d_m_k * ek_from_g)**0.5
+                d_p = math.sqrt(2 * d_m_k * ek_from_g)
                 ek_tot_from_g -= ek_from_g
                 if   k == 1: d_stats_sarr[tki, tkj, k]['p_x'] -= d_p
                 elif k == 2: d_stats_sarr[tki, tkj, k]['p_x'] += d_p
@@ -839,7 +868,7 @@ def _erode_rainfall_evolve_cuda_sub(
     # - rain & evaporate -
     # cap rains to the maximum height
     stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
-    stat = _normalize_stat_cudev(stat, edge, z_res)
+    stat = _normalize_stat_cudev(stat, edge, z_res, rho_soil_div_aqua)
     # damping momentum / kinetic energy
     v_damping_fac = float32(1) - v_damping
     if stat['aqua']:
