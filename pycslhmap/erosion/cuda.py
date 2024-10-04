@@ -657,12 +657,14 @@ def _move_fluid_cudev(
             ek_from_g = d_ek_fac_g * (
                 d_m_k * (2*(z0 - zk) - d_h_k) - d_h_tot_2_div_4)
             if ek_from_g > 0 and d_m_k > 0:
+                # momentum gain from gravity
                 d_p = (2 * d_m_k * ek_from_g)**0.5
                 ek_tot_from_g -= ek_from_g
                 if   k == 1: d_stats_sarr[tki, tkj, k]['p_x'] -= d_p
                 elif k == 2: d_stats_sarr[tki, tkj, k]['p_x'] += d_p
                 elif k == 3: d_stats_sarr[tki, tkj, k]['p_y'] -= d_p
                 elif k == 4: d_stats_sarr[tki, tkj, k]['p_y'] += d_p
+                
         
         #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
 
@@ -689,6 +691,13 @@ def _move_fluid_cudev(
                     #    resulting in negative stat['ekin']
                     d_ek = -d_ek_fac_flow * stat['ekin']
                 d_stats_sarr[tki, tkj, k]['ekin'] = d_ek
+                # momentum gain from transfering
+                d_p_k_fac = d_h_k / h0
+                d_stats_sarr[tki, tkj, k]['p_x'] += (
+                    d_p_k_fac * stats_sarr[ti, tj]['p_x'])
+                d_stats_sarr[tki, tkj, k]['p_y'] += (
+                    d_p_k_fac * stats_sarr[ti, tj]['p_y'])
+                # add more code above to translate energy into momentum
     
     
     # - erode -
