@@ -295,8 +295,11 @@ def _get_m_cudev(
     stat : _ErosionStateDataDtype,  # in
     rho_soil_div_aqua: float32,     # in
 ) -> float32:
-    """Get mass per rhoS (in unit of water-equivalent height)."""
-    return rho_soil_div_aqua * stat['sedi'] + stat['aqua']
+    """Get mass per rhoS (in unit of water-equivalent height).
+
+    Always positive.
+    """
+    return max(rho_soil_div_aqua * stat['sedi'] + stat['aqua'], float32(0))
 
 
 
