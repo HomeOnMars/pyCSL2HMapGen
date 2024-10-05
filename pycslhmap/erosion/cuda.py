@@ -281,12 +281,20 @@ def _add_stats_cudev(
 
 
 @cuda.jit(device=True, fastmath=True)
-def _get_z_and_h_cudev(
+def _get_z_cudev(
     stat : _ErosionStateDataDtype,  # in
-) -> tuple[float32, float32]:
-    """Get total height z and fluid height h from stat."""
-    h = stat['sedi'] + stat['aqua']
-    return stat['soil'] + h, h
+) -> float32:
+    """Get total height z from stat."""
+    return stat['soil'] + stat['sedi'] + stat['aqua']
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _get_h_cudev(
+    stat : _ErosionStateDataDtype,  # in
+) -> float32:
+    """Get fluid height h from stat."""
+    return stat['sedi'] + stat['aqua']
 
 
 
@@ -537,15 +545,15 @@ def _get_d_hs_cudev(
     
     ---------------------------------------------------------------------------
     """
-    z0, h0 = _get_z_and_h_cudev(stat)
+    z0, h0 = _get_z_cudev(stat), _get_h_cudev(stat)
     d_h_tot = float32(0.)
     k = 0
     for ki in range(N_ADJ_P1//2):
         tki, tkj = _get_tkij_cudev(ti, tj, 2*ki+1)
-        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+        zk = _get_z_cudev(stats_sarr[tki, tkj])
         d_h_k1 = z0 - zk
         tki, tkj = _get_tkij_cudev(ti, tj, 2*ki+2)
-        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+        zk = _get_z_cudev(stats_sarr[tki, tkj])
         d_h_k2 = z0 - zk
         if d_h_k1 > d_h_k2:
             k = 2*ki+1
@@ -554,7 +562,7 @@ def _get_d_hs_cudev(
             k = 2*ki+2
             d_hs_local[2*ki+1] = float32(0.)
         tki, tkj = _get_tkij_cudev(ti, tj, k)
-        zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+        zk = _get_z_cudev(stats_sarr[tki, tkj])
         d_h_k = min((z0 - zk)/3*flow_eff, h0/2)
         if d_h_k < z_res: d_h_k = float32(0.)
         d_hs_local[k] = d_h_k
@@ -636,7 +644,7 @@ def _move_fluid_cudev(
         return
     
     stat = stats_sarr[ti, tj]
-    z0, h0 = _get_z_and_h_cudev(stat)
+    z0, h0 = _get_z_cudev(stat), _get_h_cudev(stat)
 
     for k in range(N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
@@ -654,7 +662,15 @@ def _move_fluid_cudev(
         stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
     )
 
-    # parse amount of fluid into amount of sedi, aqua, ekin
+    # # calc momemtum gain
+    # if d_h_tot: # only do things if something actually moved
+        
+    #     for k in range(1, N_ADJ_P1):
+    #         tki, tkj = _get_tkij_cudev(ti, tj, k)
+    #         zk = _get_z_cudev(stats_sarr[tki, tkj])
+    #         d_h_k = d_hs_local[k]
+
+    # parse amount of fluid into amount of sedi, aqua, p, ekin
     if d_h_tot: # only do things if something actually moved
         
         # factions that flows away:
@@ -670,7 +686,7 @@ def _move_fluid_cudev(
         ek_tot_from_g = float32(0.)
         for k in range(1, N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
-            zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+            zk = _get_z_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
             
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
@@ -681,7 +697,7 @@ def _move_fluid_cudev(
         d_h_tot_2_div_4 = d_h_tot**2/(N_ADJ_P1-1)
         for k in range(1, N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
-            zk, _ = _get_z_and_h_cudev(stats_sarr[tki, tkj])
+            zk = _get_z_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
             d_m_k = m_div_h0 * d_h_k
             # *** Check algo & add more rows if ADJ_OFFSETS were expanded ***
