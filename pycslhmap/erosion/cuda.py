@@ -659,6 +659,8 @@ def _move_fluid_cudev(
     # - move fluids -
     #--------------------------------------------------------------------------
 
+    p_x, p_y = stat['p_x'], stat['p_y']
+
     # get d_hs_local (positive, == -d_hs_local[0])
     # no need to set k==0 elem
     d_h_tot = _get_d_hs_cudev(
@@ -670,7 +672,7 @@ def _move_fluid_cudev(
     # init temp vars
     m0 = _get_m_cudev(stat, rho_soil_div_aqua)
     rho = m0 / h0    #in units of water density
-    p2_x_0, p2_y_0 = stat['p_x']**2, stat['p_y']**2
+    p2_x_0, p2_y_0 = p_x**2, p_y**2
     # p2_0 = p2_x_0 + p2_y_0    # momentum squared
     m02g_2 = 2 * m0**2 * g
     # momentum gain (from kinetic energy debt)
@@ -733,15 +735,15 @@ def _move_fluid_cudev(
             # *** Check algo & add more rows if ADJ_OFFSETS were expanded ***
             if   k == 1:
                 d_p_x_k = -math.sqrt(p2_x_0 + d_p2_from_g_pf2k) * tot_fac_k
-                d_p_y_k = stat['p_y'] * tot_fac_k
+                d_p_y_k = p_y * tot_fac_k
             elif k == 2:
                 d_p_x_k =  math.sqrt(p2_x_0 + d_p2_from_g_pf2k) * tot_fac_k
-                d_p_y_k = stat['p_y'] * tot_fac_k
+                d_p_y_k = p_y * tot_fac_k
             elif k == 3:
-                d_p_x_k = stat['p_x'] * tot_fac_k
+                d_p_x_k = p_x * tot_fac_k
                 d_p_y_k = -math.sqrt(p2_y_0 + d_p2_from_g_pf2k) * tot_fac_k
             elif k == 4:
-                d_p_x_k = stat['p_x'] * tot_fac_k
+                d_p_x_k = p_x * tot_fac_k
                 d_p_y_k =  math.sqrt(p2_y_0 + d_p2_from_g_pf2k) * tot_fac_k
     
             if math.isfinite(d_p_x_k) and math.isfinite(d_p_y_k):
@@ -756,8 +758,8 @@ def _move_fluid_cudev(
                 d_hs_local[k] = float32(0.)
                 d_h_tot -= d_h_k
                 # invert momentum
-                d_stats_sarr[ti, tj, 0]['p_x'] -= stat['p_x'] * fac_k
-                d_stats_sarr[ti, tj, 0]['p_y'] -= stat['p_y'] * fac_k
+                d_stats_sarr[ti, tj, 0]['p_x'] -= p_x * fac_k
+                d_stats_sarr[ti, tj, 0]['p_y'] -= p_y * fac_k
                 d_p_x_k, d_p_y_k = float32(0.), float32(0.)
             
     d_hs_local[0] = -d_h_tot
