@@ -37,7 +37,7 @@ _ErosionStateDataDtype : np.dtype = np.dtype([
     ('aqua', np.float32),   # [positive][m] water (excluding sediment) height
     ('p_x' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in x direction (NS)
     ('p_y' , np.float32),   # [ signed ][m^2/s] momentum per rhoS in y direction (WE)
-    ('ekin', np.float32),   # [ signed ][m^3/s^2] LEFTOVER kinetic energy budget of fluid per rhoS
+    ('ekin', np.float32),   # [negative][m^3/s^2] LEFTOVER kinetic energy debt of fluid per rhoS
                             #     Could be either positive or negative
 ])
 ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
@@ -130,8 +130,12 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'g': {
         '_TYPE': np.float32,
-        'value': np.float32(9.8),
-        '_DOC_': """Gravitational constant in m/s2.""",
+        'value': np.float32(8),
+        '_DOC_': """Gravitational constant in m/s2, multiplied with how efficient the gravitatioal energy is being transformed into momentum.
+        .
+            Must: g >= 0
+            0 means no gravitational energy gain (so the water will not move)
+        .""",
     },
     # Erosion
     #--------------------------------------------------------------------------

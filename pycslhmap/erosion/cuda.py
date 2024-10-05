@@ -655,22 +655,113 @@ def _move_fluid_cudev(
 
 
     # - move fluids -
+    #--------------------------------------------------------------------------
 
     # get d_hs_local (positive, == -d_hs_local[0])
+    # no need to set k==0 elem
     d_h_tot = _get_d_hs_cudev(
         d_hs_local,  # out
         stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
     )
 
-    # # calc momemtum gain
-    # if d_h_tot: # only do things if something actually moved
-        
-    #     for k in range(1, N_ADJ_P1):
-    #         tki, tkj = _get_tkij_cudev(ti, tj, k)
-    #         zk = _get_z_cudev(stats_sarr[tki, tkj])
-    #         d_h_k = d_hs_local[k]
+    
+    # init temp vars
+    m0 = _get_m_cudev(stat, rho_soil_div_aqua)
+    rho = m0 / h0    #in units of water density
+    p2_x_0, p2_y_0 = stat['p_x']**2, stat['p_y']**2
+    # p2_0 = p2_x_0 + p2_y_0    # momentum squared
+    m02g_2 = 2 * m0**2 * g
+    # momentum gain (from kinetic energy debt)
+    # _pf2k means __per_fac2_k
+    d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']
+    
+    # # get d_h_k
+    # d_h_tot = float32(0.)
+    # for k in range(1, N_ADJ_P1):
+    #     # *** Fix below! ***
+    #     d_h_k = ???
 
-    # parse amount of fluid into amount of sedi, aqua, p, ekin
+    #     # set d_hs_local
+    #     d_hs_local[k] = d_h_k
+    #     d_h_tot += d_h_k
+
+    # d_hs_local[0] = -d_h_tot
+
+
+    # calc momentum changes
+    ek_gain_tot = float32(0.)    # Kinetic energy gain of the system
+    for k in range(1, N_ADJ_P1):
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        zk = _get_z_cudev(stats_sarr[tki, tkj])
+        d_h_k = d_hs_local[k]
+        
+        if d_h_k:    # only do things if movement are proposed
+            fac_k = d_h_k / h0    # move factor
+            
+            # calc momemtum gain
+            
+            # momentum gain (from gravity) squared (per move factor squared)
+            #    assuming all kinetic eneregy translated to momentum
+            #    (p_from_g)**2 == 2 * d_m_k * ek_from_g
+            #        where d_m_k = m0 * fac_k,
+            #        ek_from_g = g * d_m_k * (z0 - zk - d_h_k)
+            #    divide both sides by (fac_k)**2 and we have
+            #d_p2_from_g_pf2k = 2 * m0**2 * g * (z0 - zk - d_h_k) #, i.e.
+            d_p2_from_g_pf2k = 2 * m0**2 * g *(z0 - zk - d_h_k)
+            ek_from_g = g * m0 * fac_k * (z0 - zk - d_h_k)
+    
+            # d_p2_x_k_pf2k, d_p2_y_k_pf2k = p2_x_0, p2_y_0
+            # # kinetic energy gain from gravity only goes to 1 direction.
+            # if   k == 1 or k == 2: d_p2_x_k_pf2k += d_p2_from_g_pf2k
+            # elif k == 3 or k == 4: d_p2_y_k_pf2k += d_p2_from_g_pf2k
+            
+            # Now add the momentum loss from ekin debt
+            # p2_from_ek_fac = 1 + (
+            #    d_p2_from_ek_pf2k / (d_p2_x_k_pf2k + d_p2_y_k_pf2k))
+            # if not math.isnan(p2_from_ek_fac):
+            #     d_p2_x_k_pf2k *= p2_from_ek_fac
+            #     d_p2_y_k_pf2k *= p2_from_ek_fac
+            
+            # Equivalently,
+            d_p2_k_pf2k = p2_x_0 + p2_y_0 + d_p2_from_g_pf2k
+            tot_fac_k = math.sqrt(1 + d_p2_from_ek_pf2k / d_p2_k_pf2k) * fac_k
+    
+            # Summing up,
+            # *** Check algo & add more rows if ADJ_OFFSETS were expanded ***
+            if   k == 1:
+                d_p_x_k = -math.sqrt(p2_x_0 + d_p2_from_g_pf2k) * tot_fac_k
+                d_p_y_k = stat['p_y'] * tot_fac_k
+            elif k == 2:
+                d_p_x_k =  math.sqrt(p2_x_0 + d_p2_from_g_pf2k) * tot_fac_k
+                d_p_y_k = stat['p_y'] * tot_fac_k
+            elif k == 3:
+                d_p_x_k = stat['p_x'] * tot_fac_k
+                d_p_y_k = -math.sqrt(p2_y_0 + d_p2_from_g_pf2k) * tot_fac_k
+            elif k == 4:
+                d_p_x_k = stat['p_x'] * tot_fac_k
+                d_p_y_k =  math.sqrt(p2_y_0 + d_p2_from_g_pf2k) * tot_fac_k
+    
+            if math.isnan(d_p_x_k) or math.isnan(d_p_y_k):
+                # reject movement
+                d_hs_local[k] = float32(0.)
+                d_h_tot -= d_h_k
+                # invert momentum
+                d_stats_sarr[ti, tj, 0]['p_x'] -= stat['p_x'] * fac_k
+                d_stats_sarr[ti, tj, 0]['p_y'] -= stat['p_y'] * fac_k
+                d_p_x_k, d_p_y_k = float32(0.), float32(0.)
+            else:
+                # write changes
+                d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
+                d_stats_sarr[tki, tkj, k]['p_y'] = d_p_y_k
+                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
+                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
+                ek_gain_tot += ek_from_g    # kinetic energy added from gravity
+            
+    d_hs_local[0] = -d_h_tot
+                
+            
+
+    # parse amount of fluid into amount of sedi, aqua, ekin
     if d_h_tot: # only do things if something actually moved
         
         # factions that flows away:
@@ -679,76 +770,31 @@ def _move_fluid_cudev(
         # # kinetic energy always flows fully away with current
         # d_ek_fac_flow = flow_eff
         d_ek_fac_flow = d_h_tot / h0
-        m_div_h0 = d_aq_fac + rho_soil_div_aqua * d_se_fac
-        d_ek_fac_g = m_div_h0 * g / 2
+        mk_div_h0 = d_aq_fac + rho_soil_div_aqua * d_se_fac
         
-        # kinetic energy gain from gravity
+        # making sure energy is conserved
         ek_tot_from_g = float32(0.)
         for k in range(1, N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
             zk = _get_z_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
-            
             ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
-            
-        ek_tot_from_g = d_ek_fac_g * (ek_tot_from_g - d_h_tot**2)
-
-        # momentum gain from gravity
-        d_h_tot_2_div_4 = d_h_tot**2/(N_ADJ_P1-1)
-        for k in range(1, N_ADJ_P1):
-            tki, tkj = _get_tkij_cudev(ti, tj, k)
-            zk = _get_z_cudev(stats_sarr[tki, tkj])
-            d_h_k = d_hs_local[k]
-            d_m_k = m_div_h0 * d_h_k
-            # *** Check algo & add more rows if ADJ_OFFSETS were expanded ***
-            # *** NOTE: Need to update below kinetic energy gain calc ***
-            ek_from_g = d_ek_fac_g * (
-                d_m_k * (2*(z0 - zk) - d_h_k) - d_h_tot_2_div_4)
-            if ek_from_g > 0 and d_m_k > 0:
-                # momentum gain from gravity
-                d_p = math.sqrt(2 * d_m_k * ek_from_g)
-                ek_tot_from_g -= ek_from_g
-                if   k == 1: d_stats_sarr[tki, tkj, k]['p_x'] -= d_p
-                elif k == 2: d_stats_sarr[tki, tkj, k]['p_x'] += d_p
-                elif k == 3: d_stats_sarr[tki, tkj, k]['p_y'] -= d_p
-                elif k == 4: d_stats_sarr[tki, tkj, k]['p_y'] += d_p
-                
-        
-        #if ek_tot_from_g < 0: ek_tot_from_g = np.nan    # debug
+        ek_tot_from_g = mk_div_h0 * g / 2 * (ek_tot_from_g - d_h_tot**2)
+        d_stats_sarr[ti, tj, 0]['ekin'] -= ek_gain_tot - ek_tot_from_g
 
         # calc changes from above
         for k in range(N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
             d_h_k = d_hs_local[k]
             if d_h_k:
-                #d_stats_sarr[tki, tkj, k]['soil'] = 0
                 d_stats_sarr[tki, tkj, k]['sedi'] = d_se_fac * d_h_k
                 d_stats_sarr[tki, tkj, k]['aqua'] = d_aq_fac * d_h_k
-                # gravitational energy gain
-                # Note: a column of fluid of height from h0 to h1 has
-                #    gravitational energy per area per density of
-                #    g * (h1**2 - h0**2)  / 2.
-                if k:
-                    d_ek = (
-                        ek_tot_from_g + d_ek_fac_flow * stat['ekin']
-                    ) * d_h_k / d_h_tot
-                else:
-                    # kinetic energy flow only (no g gain)
-                    # remove d_h_k / d_h_tot (which == -1.)
-                    #    to avoid precision loss
-                    #    resulting in negative stat['ekin']
-                    d_ek = -d_ek_fac_flow * stat['ekin']
-                d_stats_sarr[tki, tkj, k]['ekin'] = d_ek
-                # momentum gain from transfering
-                d_p_k_fac = d_h_k / h0
-                d_stats_sarr[tki, tkj, k]['p_x'] += (
-                    d_p_k_fac * stats_sarr[ti, tj]['p_x'])
-                d_stats_sarr[tki, tkj, k]['p_y'] += (
-                    d_p_k_fac * stats_sarr[ti, tj]['p_y'])
-                # add more code above to translate energy into momentum
+                # Note: kinetic energy change from adjacent cells
+                # have already been incorporated into the p momentum transfer
     
     
     # - erode -
+    #--------------------------------------------------------------------------
     if erosion_eff:    # h0 > 0 must be True from before
         # get slope (of the soil surface instead of fluid surface)
         slope = float32(0.)
