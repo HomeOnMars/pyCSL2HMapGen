@@ -272,7 +272,8 @@ def _add_stats_cudev(
         
     if math.isnan(edge['p_y' ]): stat['p_y' ] += stat_add['p_y']
     else: stat['p_y' ] = edge['p_y']
-    
+
+    # *** Fix energy change from gravitational energy gain when putting fluid on top of each other here! ***
     if math.isnan(edge['ekin']): stat['ekin'] += stat_add['ekin']
     else: stat['ekin'] = edge['ekin']
 
@@ -372,6 +373,7 @@ def _normalize_stat_cudev(
         else:
             p = _get_p_cudev(stat)
             if p > 0:
+                # attempt to put energy back into momentum
                 m_2 = _get_m_cudev(stat, rho_soil_div_aqua) * 2
                 dp = math.sqrt(m_2 * abs(stat['ekin']))
                 if stat['ekin'] < 0: dp = -dp
@@ -694,9 +696,9 @@ def _move_fluid_cudev(
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
         d_h_k = d_hs_local[k]
+        fac_k = d_h_k / h0    # move factor
         
-        if d_h_k:    # only do things if movement are proposed
-            fac_k = d_h_k / h0    # move factor
+        if fac_k > 0:    # only do things if movement are proposed
             
             # calc momemtum gain
             
@@ -725,7 +727,8 @@ def _move_fluid_cudev(
             # Equivalently,
             d_p2_k_pf2k = p2_x_0 + p2_y_0 + d_p2_from_g_pf2k
             tot_fac_k = math.sqrt(1 + d_p2_from_ek_pf2k / d_p2_k_pf2k) * fac_k
-    
+            # Warning: tot_fac_k could be nan
+            
             # Summing up,
             # *** Check algo & add more rows if ADJ_OFFSETS were expanded ***
             if   k == 1:
@@ -741,7 +744,14 @@ def _move_fluid_cudev(
                 d_p_x_k = stat['p_x'] * tot_fac_k
                 d_p_y_k =  math.sqrt(p2_y_0 + d_p2_from_g_pf2k) * tot_fac_k
     
-            if math.isnan(d_p_x_k) or math.isnan(d_p_y_k):
+            if math.isfinite(d_p_x_k) and math.isfinite(d_p_y_k):
+                # write changes
+                d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
+                d_stats_sarr[tki, tkj, k]['p_y'] = d_p_y_k
+                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
+                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
+                ek_gain_tot += ek_from_g    # kinetic energy added from gravity
+            else:
                 # reject movement
                 d_hs_local[k] = float32(0.)
                 d_h_tot -= d_h_k
@@ -749,13 +759,6 @@ def _move_fluid_cudev(
                 d_stats_sarr[ti, tj, 0]['p_x'] -= stat['p_x'] * fac_k
                 d_stats_sarr[ti, tj, 0]['p_y'] -= stat['p_y'] * fac_k
                 d_p_x_k, d_p_y_k = float32(0.), float32(0.)
-            else:
-                # write changes
-                d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
-                d_stats_sarr[tki, tkj, k]['p_y'] = d_p_y_k
-                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
-                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
-                ek_gain_tot += ek_from_g    # kinetic energy added from gravity
             
     d_hs_local[0] = -d_h_tot
                 
