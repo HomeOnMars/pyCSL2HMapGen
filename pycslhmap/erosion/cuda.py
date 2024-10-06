@@ -593,7 +593,7 @@ def _get_capa_cudev(
 
 @cuda.jit(device=True, fastmath=True)
 def _move_fluid_cudev(
-    # out
+    # in/out
     d_stats_sarr,
     # in
     stats_sarr,
@@ -617,7 +617,7 @@ def _move_fluid_cudev(
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
-    Overwrite the changes to d_stats_sarr (but does not init its every pixel).
+    Overwrite the changes to d_stats_sarr (but does not init it).
 
     Warning: Do not use cuda.syncthreads() in device functions,
         since we are returning early in some cases.
@@ -638,10 +638,6 @@ def _move_fluid_cudev(
     z0, h0 = _get_z_cudev(stat), _get_h_cudev(stat)
     # note: p_x, p_y could be updated and not necessarily the same as in stat
     p_x, p_y = stat['p_x'], stat['p_y']
-
-    for k in range(N_ADJ_P1):
-        tki, tkj = _get_tkij_cudev(ti, tj, k)
-        _set_stat_zero_cudev(d_stats_sarr[tki, tkj, k])
 
     if not h0:    # stop if no water
         return
@@ -935,13 +931,13 @@ def _erode_rainfall_evolve_cuda_sub(
     nx, ny, _ = stats_cuda.shape
     i, j, ti, tj = _get_coord_cudev()
     i_layer_write = 1 - i_layer_read
+    for k in range(N_ADJ_P1):
+        _set_stat_zero_cudev(d_stats_sarr[ti, tj, k])
+
     if _is_outside_map_cudev(nx, ny, i, j):
         return
 
-    
     # - preload data -
-    for k in range(N_ADJ_P1):
-        _set_stat_zero_cudev(d_stats_sarr[ti, tj, k])
     stats_sarr[ti, tj] = stats_cuda[i, j, i_layer_read]
     stat = stats_sarr[ti, tj]    # by reference
     edges_sarr[ti, tj] = edges_cuda[i, j]
