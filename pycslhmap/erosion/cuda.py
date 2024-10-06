@@ -347,6 +347,7 @@ def _normalize_stat_cudev(
     stat : _ErosionStateDataDtype,
     # in
     edge : _ErosionStateDataDtype,
+    z_max: float32,
     z_res: float32,
     rho_soil_div_aqua: float32,
 ) -> _ErosionStateDataDtype:
@@ -356,6 +357,21 @@ def _normalize_stat_cudev(
 
     ---------------------------------------------------------------------------
     """
+    
+    if stat['soil'] < 0:
+        # Fix over erosion by force depositing sediments
+        stat['sedi'] += stat['soil']
+        stat['soil'] = 0
+
+    if _get_z_cudev(stat) > z_max:
+        # Fix height overflow
+        stat['soil'] = min(stat['soil'], z_max)
+        stat['sedi'] = min(stat['sedi'], z_max - stat['soil'])
+        stat['aqua'] = min(
+            stat['aqua'],
+            # cap rains to the maximum height
+            z_max - (stat['soil'] + max(stat['sedi'], float32(0))),
+        )
     
     if stat['aqua'] < z_res:
         # water all evaporated.
@@ -382,15 +398,9 @@ def _normalize_stat_cudev(
                     # cap the removal of energy so p doesn't go negative
                     stat['ekin'] = ((dp + p)**2 / m_2) if m_2 > z_res else 0
                     dp = -p
-
                 p_fac = max((1+dp/p), 0)    # positive
                 if math.isnan(edge['p_x']): stat['p_x'] *= p_fac
                 if math.isnan(edge['p_y']): stat['p_y'] *= p_fac
-    
-    if stat['soil'] < 0:
-        # Fix over erosion by force depositing sediments
-        stat['sedi'] += stat['soil']
-        stat['soil'] = 0
     
     return stat
 
@@ -809,7 +819,7 @@ def _move_fluid_cudev(
     #--------------------------------------------------------------------------
     if erosion_eff:    # h0 > 0 must be True from before
         # get slope (of the soil surface instead of fluid surface)
-        slope = float32(0.)
+        slope = float32(0)
         if d_h_tot:
             # averaging slope, weighted by movement
             # note: slope can be negative
@@ -932,6 +942,7 @@ def _erode_rainfall_evolve_cuda_sub(
     if _is_outside_map_cudev(nx, ny, i, j):
         return
 
+    
     # - preload data -
     for k in range(N_ADJ_P1):
         _set_stat_zero_cudev(d_stats_sarr[ti, tj, k])
@@ -941,12 +952,17 @@ def _erode_rainfall_evolve_cuda_sub(
     edge = edges_sarr[ti, tj]
     not_at_outer_edge : bool_ = not _is_at_outer_edge_cudev(
         nx, ny, i, j, ti, tj)
+
     
     # - rain & evaporate -
-    # cap rains to the maximum height
-    stat['aqua'] = min(stat['aqua'] - evapor_rate, z_max)
+    v_damping_fac = float32(1)
+    if evapor_rate > 0 and stat['aqua'] > z_res:
+        # rain doesn't remove kinetic energy but evaporation does
+        v_damping_fac -= evapor_rate / stat['aqua']
+    # rain / evaporate
+    stat['aqua'] = stat['aqua'] - evapor_rate
     # damping momentum / kinetic energy
-    v_damping_fac = float32(1) - v_damping
+    v_damping_fac -= v_damping
     if stat['aqua']:
         if not math.isnan(edge['p_x']):
             stat['p_x'] *= v_damping_fac
@@ -955,7 +971,7 @@ def _erode_rainfall_evolve_cuda_sub(
         if not math.isnan(edge['ekin']) and stat['ekin'] > 0:
             stat['ekin'] *= v_damping_fac**2
     # done
-    stat = _normalize_stat_cudev(stat, edge, z_res, rho_soil_div_aqua)
+    stat = _normalize_stat_cudev(stat, edge, z_max, z_res, rho_soil_div_aqua)
     stats_sarr[ti, tj] = stat
 
     cuda.syncthreads()
