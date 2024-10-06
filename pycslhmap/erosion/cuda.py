@@ -702,7 +702,7 @@ def _move_fluid_cudev(
             elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
                 d_h_k = (p_y**2/p2_0) * h0_p_k
         # --- step 4: gravity-based movements
-        d_h_k += min(max(z0 - h0_p_k - zk, 0), h0_g_k)
+        d_h_k += min(max(z0 - zk, 0), h0_g_k)
 
         # set d_hs_local
         d_hs_local[k] = d_h_k
