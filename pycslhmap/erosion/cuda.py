@@ -710,19 +710,7 @@ def _move_fluid_cudev(
             #d_p2_from_g_pf2k = 2 * m0**2 * g * (z0 - zk - d_h_k) #, i.e.
             d_p2_from_g_pf2k = 2 * m0**2 * g *(z0 - zk - d_h_k)
             ek_from_g = g * m0 * fac_k * (z0 - zk - d_h_k)
-    
-            # d_p2_x_k_pf2k, d_p2_y_k_pf2k = p_x**2, p_y**2
-            # # kinetic energy gain from gravity only goes to 1 direction.
-            # if   k == 1 or k == 2: d_p2_x_k_pf2k += d_p2_from_g_pf2k
-            # elif k == 3 or k == 4: d_p2_y_k_pf2k += d_p2_from_g_pf2k
-            # # Now add the momentum loss from ekin debt
-            # p2_from_ek_fac = 1 + (
-            #    d_p2_from_ek_pf2k / (d_p2_x_k_pf2k + d_p2_y_k_pf2k))
-            # if not math.isnan(p2_from_ek_fac):
-            #     d_p2_x_k_pf2k *= p2_from_ek_fac
-            #     d_p2_y_k_pf2k *= p2_from_ek_fac
-            
-            # Equivalently,
+
             d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
             # adding the momentum loss from ekin debt
             tot_fac_k = math.sqrt(1 + d_p2_from_ek_pf2k / d_p2_k_pf2k) * fac_k
