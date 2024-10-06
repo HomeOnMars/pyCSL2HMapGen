@@ -659,6 +659,7 @@ def _move_fluid_cudev(
     # - move fluids -
     #--------------------------------------------------------------------------
 
+    # note: p_x, p_y could be updated and not necessarily the same as in stat
     p_x, p_y = stat['p_x'], stat['p_y']
 
     # get d_hs_local (positive, == -d_hs_local[0])
@@ -755,9 +756,9 @@ def _move_fluid_cudev(
                 ek_gain_tot += ek_from_g    # kinetic energy added from gravity
             else:
                 # reject movement
-                d_hs_local[k] = float32(0.)
                 d_h_tot -= d_h_k
-                # invert momentum
+                d_hs_local[k] = float32(0.)
+                # reflect momentum
                 d_stats_sarr[ti, tj, 0]['p_x'] -= p_x * fac_k
                 d_stats_sarr[ti, tj, 0]['p_y'] -= p_y * fac_k
                 d_p_x_k, d_p_y_k = float32(0.), float32(0.)
@@ -778,14 +779,14 @@ def _move_fluid_cudev(
         mk_div_h0 = d_aq_fac + rho_soil_div_aqua * d_se_fac
         
         # making sure energy is conserved
-        ek_tot_from_g = float32(0.)
+        ek_gain_actual = float32(0.)
         for k in range(1, N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
             zk = _get_z_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
-            ek_tot_from_g += d_h_k * (2*(z0 - zk) - d_h_k)
-        ek_tot_from_g = mk_div_h0 * g / 2 * (ek_tot_from_g - d_h_tot**2)
-        d_stats_sarr[ti, tj, 0]['ekin'] -= ek_gain_tot - ek_tot_from_g
+            ek_gain_actual += d_h_k * (2*(z0 - zk) - d_h_k)
+        ek_gain_actual = mk_div_h0 * g / 2 * (ek_gain_actual - d_h_tot**2)
+        d_stats_sarr[ti, tj, 0]['ekin'] -= ek_gain_tot - ek_gain_actual
 
         # calc changes from above
         for k in range(N_ADJ_P1):
