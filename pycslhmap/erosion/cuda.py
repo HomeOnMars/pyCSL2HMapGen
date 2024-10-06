@@ -540,52 +540,6 @@ def erode_rainfall_init_sub_cuda(
 
 
 @cuda.jit(device=True, fastmath=True)
-def _get_d_hs_cudev(
-    # out
-    d_hs_local,
-    # in
-    stat,
-    stats_sarr,
-    ti, tj,
-    z_res: float32,
-    flow_eff: float32,
-) -> float32:
-    """Get fluid movements plan.
-
-    *   Note: Need to expand this if more rows are added to ADJ_OFFSETS!
-
-    Return: d_h_tot
-    
-    ---------------------------------------------------------------------------
-    """
-    z0, h0 = _get_z_cudev(stat), _get_h_cudev(stat)
-    d_h_tot = float32(0.)
-    k = 0
-    for ki in range(N_ADJ_P1//2):
-        tki, tkj = _get_tkij_cudev(ti, tj, 2*ki+1)
-        zk = _get_z_cudev(stats_sarr[tki, tkj])
-        d_h_k1 = z0 - zk
-        tki, tkj = _get_tkij_cudev(ti, tj, 2*ki+2)
-        zk = _get_z_cudev(stats_sarr[tki, tkj])
-        d_h_k2 = z0 - zk
-        if d_h_k1 > d_h_k2:
-            k = 2*ki+1
-            d_hs_local[2*ki+2] = float32(0.)
-        else:
-            k = 2*ki+2
-            d_hs_local[2*ki+1] = float32(0.)
-        tki, tkj = _get_tkij_cudev(ti, tj, k)
-        zk = _get_z_cudev(stats_sarr[tki, tkj])
-        d_h_k = min((z0 - zk)/3*flow_eff, h0/2)
-        if d_h_k < z_res: d_h_k = float32(0.)
-        d_hs_local[k] = d_h_k
-        d_h_tot += d_h_k
-
-    d_hs_local[0] = -d_h_tot
-    return d_h_tot
-
-
-@cuda.jit(device=True, fastmath=True)
 def _get_capa_cudev(
     # in
     stat : _ErosionStateDataDtype,
@@ -675,14 +629,7 @@ def _move_fluid_cudev(
     rho = m0 / h0    #in units of water density\
     p2_0 = p_x**2 + p_y**2    # momentum squared
 
-    # # get d_hs_local (positive, == -d_hs_local[0])
-    # # no need to set k==0 elem
-    # d_h_tot = _get_d_hs_cudev(
-    #     d_hs_local,  # out
-    #     stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
-    # )
 
-    
     # -- get d_hs_local (positive, == -d_hs_local[0])
     # no need to set k==0 elem
     d_h_tot = float32(0.)
