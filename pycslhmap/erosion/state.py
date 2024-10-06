@@ -218,35 +218,35 @@ class ErosionState(HMap):
             self.__stats_ext = np.empty(
                 self.stats.shape, dtype=_ErosionStateDataExtendedDtype)
         # re-calc
-        mask_has_water = self.stats['aqua'] > 0
         self.__stats_ext['h'] = self.stats['sedi'] + self.stats['aqua']
         self.__stats_ext['d'] = self.stats['soil'] + self.stats['sedi']
         self.__stats_ext['z'] = self.__stats_ext['h'] + self.stats['soil']
         self.__stats_ext['m'] = (
             self.get_par('rho_soil_div_aqua') * self.stats['sedi']
             + self.stats['aqua'])
-        self.__stats_ext['v'][~mask_has_water] = 0
+        mask_m = self.__stats_ext['m'] > 0
+        self.__stats_ext['v'][~mask_m] = 0
         
         # # get v from energy ekin
-        # self.__stats_ext['v'][mask_has_water] = (
-        #     2 * self.stats['ekin'][mask_has_water]
-        #     / self.__stats_ext['m'][mask_has_water])**0.5
+        # self.__stats_ext['v'][mask_m] = (
+        #     2 * self.stats['ekin'][mask_m]
+        #     / self.__stats_ext['m'][mask_m])**0.5
         
         # get v form momentum p
-        self.__stats_ext['v'][mask_has_water] = (
-            self.stats['p_x'][mask_has_water]**2
-            + self.stats['p_y'][mask_has_water]**2
+        self.__stats_ext['v'][mask_m] = (
+            self.stats['p_x'][mask_m]**2
+            + self.stats['p_y'][mask_m]**2
             + (
-                2*self.__stats_ext['m'][mask_has_water]
-                * self.stats[   'ekin'][mask_has_water]
+                2*self.__stats_ext['m'][mask_m]
+                * self.stats[   'ekin'][mask_m]
         ))    # m^2 v^2
-        self.__stats_ext['v'][mask_has_water] = np.where(
-            self.__stats_ext['v'][mask_has_water] > 0,
-            self.__stats_ext['v'][mask_has_water],
+        self.__stats_ext['v'][mask_m] = np.where(
+            self.__stats_ext['v'][mask_m] > 0,
+            self.__stats_ext['v'][mask_m],
             0)
-        self.__stats_ext['v'][mask_has_water] = (
-            self.__stats_ext['v'][mask_has_water]**0.5
-            / self.__stats_ext['m'][mask_has_water])
+        self.__stats_ext['v'][mask_m] = (
+            self.__stats_ext['v'][mask_m]**0.5
+            / self.__stats_ext['m'][mask_m])
         return self.__stats_ext
 
 
