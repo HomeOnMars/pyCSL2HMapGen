@@ -93,7 +93,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(0.75),
         '_DOC_': """Flow factor.
         .
-            Should be in 0. <= flow_eff < 1.
+            Should be in 0. <= flow_eff <= 1.
             Controls how the water flows around,
                 i.e. momentum-based movements vs gravity-based movements.
                 1 is all gravity,
@@ -106,7 +106,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(0.875),
         '_DOC_': """Turning efficiency.
         .
-            Should be in 0. <= turning < 1.
+            Should be in 0. <= turning <= 1.
             Controls how fast the water velocity conforms to local gradient.
             Warning: dependent on pixel resolution.
         .""",

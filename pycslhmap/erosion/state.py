@@ -286,6 +286,7 @@ class ErosionState(HMap):
     def get_info(self) -> str:
         stats_ext = self.stats_ext
         aq = self.stats['aqua']
+        oi = self.stats['soil']
         zs = stats_ext['z']
         hs = stats_ext['h']
         ds = stats_ext['d']
@@ -293,6 +294,7 @@ class ErosionState(HMap):
 {self.i_cycle:5d}:    Step #{self.i_step}
     water lvl: {np.average(aq):9.4f} +/- {np.std(aq):9.4f}   in [{np.min(aq):9.4f}, {np.max(aq):9.4f}]
     fluid lvl: {np.average(hs):9.4f} +/- {np.std(hs):9.4f}   in [{np.min(hs):9.4f}, {np.max(hs):9.4f}]
+    soil  lvl: {np.average(oi):9.4f} +/- {np.std(oi):9.4f}   in [{np.min(oi):9.4f}, {np.max(oi):9.4f}]
     dirt  lvl: {np.average(ds):9.4f} +/- {np.std(ds):9.4f}   in [{np.min(ds):9.4f}, {np.max(ds):9.4f}]
     total z  : {np.average(zs):9.4f} +/- {np.std(zs):9.4f}   in [{np.min(zs):9.4f}, {np.max(zs):9.4f}]
 """
