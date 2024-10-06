@@ -622,8 +622,8 @@ def _move_fluid_cudev(
     lx    : float32,
     ly    : float32,
     flow_eff      : float32,
+    turning       : float32,
     rho_soil_div_aqua : float32,
-    dt            : float32,
     v_cap         : float32,
     v_damping     : float32,
     g             : float32,
@@ -714,8 +714,8 @@ def _move_fluid_cudev(
         # set d_hs_local
         d_hs_local[k] = d_h_k
         d_h_tot += d_h_k
-
     d_hs_local[0] = -d_h_tot
+    
 
     # -- calc momentum changes
     # init temp vars
@@ -906,8 +906,8 @@ def _erode_rainfall_evolve_cuda_sub(
     ly: float32,
     evapor_rate   : float32,
     flow_eff      : float32,
+    turning       : float32,
     rho_soil_div_aqua : float32,
-    dt            : float32,
     v_cap         : float32,
     v_damping     : float32,
     g             : float32,
@@ -1000,7 +1000,7 @@ def _erode_rainfall_evolve_cuda_sub(
         d_stats_sarr,
         # in
         stats_sarr, ti, tj, not_at_outer_edge, z_res, lx, ly,
-        flow_eff, rho_soil_div_aqua, dt, v_cap, v_damping, g,
+        flow_eff, turning, rho_soil_div_aqua, v_cap, v_damping, g,
         erosion_eff, erosion_brush, capa_fac, capa_fac_v,
         capa_fac_slope, capa_fac_slope_cap,
     )
@@ -1184,7 +1184,7 @@ def erode_rainfall_evolve_cuda(
             pars['n_step']['value'] = step_config
             
         pars_v = {k: v['value'] for k, v in pars.items()}
-        dt = min(lx, ly) / pars_v['v_cap']    # time step
+        # dt = min(lx, ly) / pars_v['v_cap']    # time step
         
         # run loops
         n_step = pars_v['n_step']
@@ -1197,8 +1197,8 @@ def erode_rainfall_evolve_cuda(
                 i_layer_read, z_max, z_res, lx, ly,
                 pars_v['evapor_rate'],
                 pars_v['flow_eff'],
+                pars_v['turning'],
                 pars_v['rho_soil_div_aqua'],
-                dt,
                 pars_v['v_cap'],
                 pars_v['v_damping'],
                 pars_v['g'],

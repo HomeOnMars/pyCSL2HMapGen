@@ -101,6 +101,16 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             Do NOT touch this unless you know what you are doing.
         .""",
     },
+    'turning': {
+        '_TYPE': np.float32,
+        'value': np.float32(0.75),
+        '_DOC_': """Turning efficiency.
+        .
+            Should be in 0. <= turning < 1.
+            Controls how fast the water velocity conforms to local gradient.
+            Warning: dependent on pixel resolution.
+        .""",
+    },
     'rho_soil_div_aqua': {
         '_TYPE': np.float32,
         'value': np.float32(1.5),
