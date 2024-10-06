@@ -230,6 +230,12 @@ def _get_l_cudev(
 
 
 
+@cuda.jit(device=True, fastmath=True)
+def _get_sign_cudev(x) -> float32:
+    """Get the sign of x. (1 if zero/nan)"""
+    return float32(-1) if x < 0 else float32(1)
+
+
 #-----------------------------------------------------------------------------#
 #    Device Functions: Stats calc
 #-----------------------------------------------------------------------------#
@@ -654,8 +660,8 @@ def _move_fluid_cudev(
 
     # -- get d_hs_local (positive, == -d_hs_local[0])
     # no need to set k==0 elem
-    d_h_tot = float32(0.)
-    
+    d_h_tot = float32(0)
+    grad_x, grad_y = float32(0), float32(0)
     if p2_0:
         # --- step 1: turning
         # figuring out the local gradient (based on soil height)
@@ -669,12 +675,10 @@ def _move_fluid_cudev(
         # re-scale gradient vector to p
         grad_fac = grad_x**2 + grad_y**2
         grad_fac = math.sqrt(p2_0 / grad_fac) if grad_fac else float32(0)
-        grad_x *= grad_fac
-        grad_y *= grad_fac
         
         # re-align momentum based on turning
-        p_x = (1 - turning) * p_x + turning * grad_x
-        p_y = (1 - turning) * p_y + turning * grad_y
+        p_x = (1 - turning) * p_x + turning * (grad_x * grad_fac)
+        p_y = (1 - turning) * p_y + turning * (grad_y * grad_fac)
         # update stat
         stat['p_x'], stat['p_y'] = p_x, p_y
         p2_0 = p_x**2 + p_y**2
@@ -737,26 +741,43 @@ def _move_fluid_cudev(
             # adding the momentum loss from ekin debt
             tot_fac_k = math.sqrt(1 + d_p2_from_ek_pf2k / d_p2_k_pf2k) * fac_k
             # Warning: tot_fac_k could be nan
+
+            # slope (squared) on this side
+            grad2_k = (
+                max(oi0 - stats_sarr[tki, tkj]['soil'], 0) / _get_l_cudev(
+                k, lx, ly))**2
             
             # Summing up,
+            #    with d_p2_from_g distributed on x/y axis according to the slope,
             # *** add more rows if ADJ_OFFSETS were expanded ***
-            if   k == 1:
-                d_p_x_k = -math.sqrt(-p_x*abs(p_x) + d_p2_from_g_pf2k
-                                    ) * tot_fac_k
-                d_p_y_k = p_y * tot_fac_k
-            elif k == 2:
-                d_p_x_k =  math.sqrt( p_x*abs(p_x) + d_p2_from_g_pf2k
-                                    ) * tot_fac_k
-                d_p_y_k = p_y * tot_fac_k
-            elif k == 3:
-                d_p_x_k = p_x * tot_fac_k
-                d_p_y_k = -math.sqrt(-p_y*abs(p_y) + d_p2_from_g_pf2k
-                                    ) * tot_fac_k
-            elif k == 4:
-                d_p_x_k = p_x * tot_fac_k
-                d_p_y_k =  math.sqrt( p_y*abs(p_y) + d_p2_from_g_pf2k
-                                    ) * tot_fac_k
-    
+            if   k == 1 or k == 2:
+                grad2 = grad2_k + grad_y**2
+                fac = grad2_k/grad2 if grad2 else float32(1)
+                sign  = float32(-1) if k == 1 else float32(1)
+                
+                d_p_x_k = sign*math.sqrt(
+                    sign*p_x*abs(p_x) + d_p2_from_g_pf2k*fac) * tot_fac_k
+                
+                d_p_y_k = _get_sign_cudev(p_y) * math.sqrt(abs(
+                    p_y**2
+                    + _get_sign_cudev(p_y * d_p2_from_g_pf2k)
+                    * d_p2_from_g_pf2k * (1 - fac)
+                )) * tot_fac_k
+                
+            elif k == 3 or k == 4:
+                grad2 = grad2_k + grad_x**2
+                sign  = float32(-1) if k == 3 else float32(1)
+                
+                d_p_x_k = _get_sign_cudev(p_x) * math.sqrt(abs(
+                    p_x**2
+                    + _get_sign_cudev(p_x * d_p2_from_g_pf2k)
+                    * d_p2_from_g_pf2k * (1 - fac)
+                )) * tot_fac_k
+                
+                d_p_y_k = sign*math.sqrt(
+                    sign*p_y*abs(p_y) + d_p2_from_g_pf2k*fac) * tot_fac_k
+
+            
             if math.isfinite(d_p_x_k) and math.isfinite(d_p_y_k):
                 # write changes
                 d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
