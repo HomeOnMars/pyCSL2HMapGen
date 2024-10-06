@@ -103,7 +103,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'turning': {
         '_TYPE': np.float32,
-        'value': np.float32(0.75),
+        'value': np.float32(0.875),
         '_DOC_': """Turning efficiency.
         .
             Should be in 0. <= turning < 1.

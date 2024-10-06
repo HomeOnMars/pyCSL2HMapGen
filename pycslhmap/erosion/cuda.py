@@ -670,11 +670,10 @@ def _move_fluid_cudev(
     #--------------------------------------------------------------------------
 
     # init temp vars
+    oi0 = stat['soil']
     m0 = _get_m_cudev(stat, rho_soil_div_aqua)
-    rho = m0 / h0    #in units of water density
+    rho = m0 / h0    #in units of water density\
     p2_0 = p_x**2 + p_y**2    # momentum squared
-    p0 = math.sqrt(p2_0)
-    v0 = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
 
     # # get d_hs_local (positive, == -d_hs_local[0])
     # # no need to set k==0 elem
@@ -682,16 +681,37 @@ def _move_fluid_cudev(
     #     d_hs_local,  # out
     #     stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
     # )
+
     
     # -- get d_hs_local (positive, == -d_hs_local[0])
     # no need to set k==0 elem
     d_h_tot = float32(0.)
+    
+    if p2_0:
+        # --- step 1: turning
+        # figuring out the local gradient (based on soil height)
+        sign_x = -1 if (
+            stats_sarr[ti-1, tj]['soil'] < stats_sarr[ti+1, tj]['soil']) else 1
+        sign_y = -1 if (
+            stats_sarr[ti, tj-1]['soil'] < stats_sarr[ti, tj+1]['soil']) else 1
+        grad_x = sign_x * max(oi0 - stats_sarr[ti+sign_x, tj]['soil'], 0) / lx
+        grad_y = sign_y * max(oi0 - stats_sarr[ti, tj+sign_y]['soil'], 0) / ly
 
-    #    turning
-    #    *** add code here! ***
-    #    (must NOT change p2_0)
+        # re-scale gradient vector to p
+        grad_fac = grad_x**2 + grad_y**2
+        grad_fac = math.sqrt(p2_0 / grad_fac) if grad_fac else float32(0)
+        grad_x *= grad_fac
+        grad_y *= grad_fac
+        
+        # re-align momentum based on turning
+        p_x = (1 - turning) * p_x + turning * grad_x
+        p_y = (1 - turning) * p_y + turning * grad_y
+        # update stat
+        stat['p_x'], stat['p_y'] = p_x, p_y
+        p2_0 = p_x**2 + p_y**2
 
-    #    execute
+    # --- step 2: init vars
+    v0 = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
     # h0_p_k & h0_g_k: fraction of the h0 for momentum- & gravity- based
     #    movement per adjacent cell
     h0_p_k = h0 * flow_eff * (v0 / v_cap)  # all will be gone
@@ -702,13 +722,13 @@ def _move_fluid_cudev(
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
         d_h_k = float32(0)
-        # --- step 1: momentum-based movements
+        # --- step 3: momentum-based movements
         if p2_0:
             if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
                 d_h_k = (p_x**2/p2_0) * h0_p_k
             elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
                 d_h_k = (p_y**2/p2_0) * h0_p_k
-        # --- step 2: gravity-based movements
+        # --- step 4: gravity-based movements
         d_h_k += min(max(z0 - h0_p_k - zk, 0), h0_g_k)
 
         # set d_hs_local
@@ -757,6 +777,7 @@ def _move_fluid_cudev(
             
             # Equivalently,
             d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
+            # adding the momentum loss from ekin debt
             tot_fac_k = math.sqrt(1 + d_p2_from_ek_pf2k / d_p2_k_pf2k) * fac_k
             # Warning: tot_fac_k could be nan
             
@@ -842,7 +863,6 @@ def _move_fluid_cudev(
         if d_h_tot:
             # averaging slope, weighted by movement
             # note: slope can be negative
-            oi0 = stat['soil']
             for k in range(1, N_ADJ_P1):
                 tki, tkj = _get_tkij_cudev(ti, tj, k)
                 d_h_k = d_hs_local[k]
