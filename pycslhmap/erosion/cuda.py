@@ -687,10 +687,10 @@ def _move_fluid_cudev(
     v0 = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
     # h0_p_k & h0_g_k: fraction of the h0 for momentum- & gravity- based
     #    movement per adjacent cell
-    h0_p_k = h0 * flow_eff * (v0 / v_cap)  # all will be gone
+    h0_p_k = h0 * (float32(1) - flow_eff) * (v0 / v_cap)  # all will be gone
     # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
     #    the rest may stay too based on terrain
-    h0_g_k = h0 * (float32(1) - flow_eff) / float32(N_ADJ_P1)
+    h0_g_k = h0 * flow_eff / float32(N_ADJ_P1)
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
@@ -790,10 +790,6 @@ def _move_fluid_cudev(
         # factions that flows away:
         d_se_fac = stat['sedi'] / h0
         d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
-        # # kinetic energy always flows fully away with current
-        # d_ek_fac_flow = flow_eff
-        d_ek_fac_flow = d_h_tot / h0
-        mk_div_h0 = d_aq_fac + rho_sedi * d_se_fac
         
         # making sure energy is conserved
         ek_gain_actual = float32(0.)
@@ -802,7 +798,8 @@ def _move_fluid_cudev(
             zk = _get_z_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
             ek_gain_actual += d_h_k * (2*(z0 - zk) - d_h_k)
-        ek_gain_actual = mk_div_h0 * g_eff / 2 * (ek_gain_actual - d_h_tot**2)
+        ek_gain_actual = (d_aq_fac + rho_sedi * d_se_fac) * g_eff / 2 * (
+            ek_gain_actual - d_h_tot**2)
         d_stats_sarr[ti, tj, 0]['ekin'] -= ek_gain_tot - ek_gain_actual
 
         # calc changes from above
