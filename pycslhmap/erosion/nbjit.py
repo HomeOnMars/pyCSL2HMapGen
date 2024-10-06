@@ -173,7 +173,7 @@ def _erode_rainfall_evolve_sub_nb(
     hole_depth : np.float32,
     slope_facs : tuple[np.float32, np.float32],
     v_cap: np.float32,
-    g : np.float32,
+    g_eff : np.float32,
 ):
     """Numba version of the sub process for rainfall erosion evolution.
 
@@ -254,7 +254,7 @@ def _erode_rainfall_evolve_sub_nb(
                         for jk in range(ik, N_ADJ):
                             kj = inds[jk]
                             wms[kj] += wmfe * flow_eff
-                            eks[kj] += wmfe*g*flow_eff*(
+                            eks[kj] += wmfe*g_eff*flow_eff*(
                                 wms_w[kj] + (wrc_d + wmfe)*flow_eff/2.
                             )
                             #wms_w[kj] -= wms_w[k]
@@ -263,12 +263,12 @@ def _erode_rainfall_evolve_sub_nb(
                     wrc += wrc_d
                     # optimizing below:
                     # wms[inds[ik:]] += wmfe
-                    # eks[inds[ik:]] += wmfe*g*(wms_w[inds[ik:]] - wms_w[k]/2)
+                    # eks[inds[ik:]] += wmfe*g_eff*(wms_w[inds[ik:]] - wms_w[k]/2)
                     # wms_w[inds[ik:]] -= wms_w[k]
                     for jk in range(ik, N_ADJ):
                         kj = inds[jk]
                         wms[kj] += wmfe * flow_eff
-                        eks[kj] += wmfe*g*flow_eff*(
+                        eks[kj] += wmfe*g_eff*flow_eff*(
                             wms_w[kj] - (wrc_d + wmfe)*flow_eff/2.
                         )
                         wms_w[kj] -= wms_w[k]    # for next
@@ -445,7 +445,7 @@ def _erode_rainfall_evolve(
     slope_facs : tuple[np.float32, np.float32] = (
         np.float32(1.0), np.float32(1.0)),
     v_cap: np.float32 = np.float32(16.),
-    g : np.float32 = np.float32(9.8),
+    g_eff : np.float32 = np.float32(9.8),
     sub_func: Callable = _erode_rainfall_evolve_sub_default,
     **kwargs,
 ):
@@ -523,7 +523,7 @@ def _erode_rainfall_evolve(
         Used to regulate the velocity in capas calc,
         So its influence flatten out when v is high.
         
-    g: float
+    g_eff: float
         Gravitational constant in m/s2.
     ...
     
@@ -545,7 +545,7 @@ def _erode_rainfall_evolve(
     slope_facs = tuple([
         np.float32(slope_fac) for slope_fac in slope_facs])
     v_cap = np.float32(v_cap)
-    g = np.float32(g)
+    g_eff = np.float32(g_eff)
 
     # - do things -
     for rain_config in rain_configs:
@@ -568,7 +568,7 @@ def _erode_rainfall_evolve(
             hole_depth  = hole_depth,
             slope_facs  = slope_facs,
             v_cap = v_cap,
-            g = g,
+            g_eff = g_eff,
             **kwargs,
         )
     

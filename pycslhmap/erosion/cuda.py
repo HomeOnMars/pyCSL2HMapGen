@@ -252,29 +252,42 @@ def _set_stat_zero_cudev(
 
 @cuda.jit(device=True, fastmath=True)
 def _add_stats_cudev(
-    stat : _ErosionStateDataDtype,    # in/out
-    stat_add: _ErosionStateDataDtype, # in
-    edge : _ErosionStateDataDtype,    # in
+    # in/out
+    stat: _ErosionStateDataDtype,
+    # in
+    stat_add: _ErosionStateDataDtype,
+    edge: _ErosionStateDataDtype,
+    rho_sedi: float32,
+    g_eff   : float32,
 ) -> _ErosionStateDataDtype:
-    """Adding stat_add to stat if edge is not set, else reset to edge."""
-    
+    """Adding stat_add to stat if edge is not set, else reset to edge.
+
+    ---------------------------------------------------------------------------
+    """
+    rhoh2_old = (    # for energy calc
+        _get_rhoh2_cudev(stat, rho_sedi)+ _get_rhoh2_cudev(stat_add, rho_sedi))
+
     if math.isnan(edge['soil']): stat['soil'] += stat_add['soil']
     else: stat['soil'] = edge['soil']
-        
+
     if math.isnan(edge['sedi']): stat['sedi'] += stat_add['sedi']
     else: stat['sedi'] = edge['sedi']
-        
+
     if math.isnan(edge['aqua']): stat['aqua'] += stat_add['aqua']
     else: stat['aqua'] = edge['aqua']
-        
+
     if math.isnan(edge['p_x' ]): stat['p_x' ] += stat_add['p_x']
     else: stat['p_x' ] = edge['p_x']
-        
+
     if math.isnan(edge['p_y' ]): stat['p_y' ] += stat_add['p_y']
     else: stat['p_y' ] = edge['p_y']
 
-    # *** Fix energy change from gravitational energy gain when putting fluid on top of each other here! ***
-    if math.isnan(edge['ekin']): stat['ekin'] += stat_add['ekin']
+    if math.isnan(edge['ekin']):
+        stat['ekin'] += stat_add['ekin']
+        # add back gravitational energy loss
+        #    when putting fluid on top of each other
+        rhoh2_new = _get_rhoh2_cudev(stat, rho_sedi)
+        stat['ekin'] += (rhoh2_old - rhoh2_new) * g_eff / 2
     else: stat['ekin'] = edge['ekin']
 
     return stat
@@ -302,13 +315,13 @@ def _get_h_cudev(
 @cuda.jit(device=True, fastmath=True)
 def _get_m_cudev(
     stat : _ErosionStateDataDtype,  # in
-    rho_soil_div_aqua: float32,     # in
+    rho_sedi: float32,     # in
 ) -> float32:
     """Get mass per rhoS (in unit of water-equivalent height).
 
     Always positive.
     """
-    return max(rho_soil_div_aqua * stat['sedi'] + stat['aqua'], float32(0))
+    return max(rho_sedi * stat['sedi'] + stat['aqua'], float32(0))
 
 
 
@@ -326,21 +339,35 @@ def _get_v_cudev(
     # in
     stat : _ErosionStateDataDtype,
     z_res: float32,
-    rho_soil_div_aqua: float32,
+    rho_sedi: float32,
     v_cap: float32,
 ) -> float32:
-    """Get velocity (in unit of m/s).
-
-    Guarantees v >= 0
+    """Get velocity (in unit of m/s; >= 0).
 
     ---------------------------------------------------------------------------
     """
-    m = _get_m_cudev(stat, rho_soil_div_aqua)
+    m = _get_m_cudev(stat, rho_sedi)
     return min(
         math.sqrt(stat['p_x']**2 + stat['p_y']**2 + 2 * m * stat['ekin']) / m,
         v_cap) if m >= z_res else float32(0)
 
 
+
+@cuda.jit(device=True, fastmath=True)
+def _get_rhoh2_cudev(
+    # in
+    stat : _ErosionStateDataDtype,
+    rho_sedi : float32,
+) -> float32:
+    """Get density times h^2. Useful for gravitational energy calculations.
+
+    ---------------------------------------------------------------------------
+    """
+    # rho = (rho_sedi*stat['sedi']+stat['aqua']) / (stat['sedi']+stat['aqua'])
+    return (
+        rho_sedi * stat['sedi'] + stat['aqua']) * (stat['sedi'] + stat['aqua'])
+
+    
 
 @cuda.jit(device=True, fastmath=True)
 def _normalize_stat_cudev(
@@ -350,7 +377,7 @@ def _normalize_stat_cudev(
     edge : _ErosionStateDataDtype,
     z_max: float32,
     z_res: float32,
-    rho_soil_div_aqua: float32,
+    rho_sedi: float32,
 ) -> _ErosionStateDataDtype:
     """Normalize stat var.
     
@@ -391,7 +418,7 @@ def _normalize_stat_cudev(
             p = _get_p_cudev(stat)
             if p > 0:
                 # attempt to put energy back into momentum
-                m_2 = _get_m_cudev(stat, rho_soil_div_aqua) * 2
+                m_2 = _get_m_cudev(stat, rho_sedi) * 2
                 dp = math.sqrt(m_2 * abs(stat['ekin']))
                 if stat['ekin'] < 0: dp = -dp
                 stat['ekin'] = 0
@@ -575,12 +602,12 @@ def _move_fluid_cudev(
     z_res : float32,
     lx    : float32,
     ly    : float32,
-    flow_eff      : float32,
-    turning       : float32,
-    rho_soil_div_aqua : float32,
-    v_cap         : float32,
-    v_damping     : float32,
-    g             : float32,
+    flow_eff  : float32,
+    turning   : float32,
+    rho_sedi  : float32,
+    v_cap     : float32,
+    v_damping : float32,
+    g_eff     : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
     capa_fac      : float32,
@@ -625,8 +652,7 @@ def _move_fluid_cudev(
 
     # init temp vars
     oi0 = stat['soil']
-    m0 = _get_m_cudev(stat, rho_soil_div_aqua)
-    rho = m0 / h0    #in units of water density\
+    m0 = _get_m_cudev(stat, rho_sedi)
     p2_0 = p_x**2 + p_y**2    # momentum squared
 
 
@@ -658,7 +684,7 @@ def _move_fluid_cudev(
         p2_0 = p_x**2 + p_y**2
 
     # --- step 2: init vars
-    v0 = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
+    v0 = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
     # h0_p_k & h0_g_k: fraction of the h0 for momentum- & gravity- based
     #    movement per adjacent cell
     h0_p_k = h0 * flow_eff * (v0 / v_cap)  # all will be gone
@@ -686,7 +712,7 @@ def _move_fluid_cudev(
 
     # -- calc momentum changes
     # init temp vars
-    m02g_2 = 2 * m0**2 * g
+    m02g_2 = 2 * m0**2 * g_eff
     # momentum gain (from kinetic energy debt)
     #    _pf2k means __per_fac2_k
     d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']
@@ -705,11 +731,11 @@ def _move_fluid_cudev(
             #    assuming all kinetic eneregy translated to momentum
             #    (p_from_g)**2 == 2 * d_m_k * ek_from_g
             #        where d_m_k = m0 * fac_k,
-            #        ek_from_g = g * d_m_k * (z0 - zk - d_h_k)
+            #        ek_from_g = g_eff * d_m_k * (z0 - zk - d_h_k)
             #    divide both sides by (fac_k)**2 and we have
-            #d_p2_from_g_pf2k = 2 * m0**2 * g * (z0 - zk - d_h_k) #, i.e.
-            d_p2_from_g_pf2k = 2 * m0**2 * g *(z0 - zk - d_h_k)
-            ek_from_g = g * m0 * fac_k * (z0 - zk - d_h_k)
+            #d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k) #, i.e.
+            d_p2_from_g_pf2k = 2 * m0**2 * g_eff *(z0 - zk - d_h_k)
+            ek_from_g = g_eff * m0 * fac_k * (z0 - zk - d_h_k)
 
             d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
             # adding the momentum loss from ekin debt
@@ -767,7 +793,7 @@ def _move_fluid_cudev(
         # # kinetic energy always flows fully away with current
         # d_ek_fac_flow = flow_eff
         d_ek_fac_flow = d_h_tot / h0
-        mk_div_h0 = d_aq_fac + rho_soil_div_aqua * d_se_fac
+        mk_div_h0 = d_aq_fac + rho_sedi * d_se_fac
         
         # making sure energy is conserved
         ek_gain_actual = float32(0.)
@@ -776,7 +802,7 @@ def _move_fluid_cudev(
             zk = _get_z_cudev(stats_sarr[tki, tkj])
             d_h_k = d_hs_local[k]
             ek_gain_actual += d_h_k * (2*(z0 - zk) - d_h_k)
-        ek_gain_actual = mk_div_h0 * g / 2 * (ek_gain_actual - d_h_tot**2)
+        ek_gain_actual = mk_div_h0 * g_eff / 2 * (ek_gain_actual - d_h_tot**2)
         d_stats_sarr[ti, tj, 0]['ekin'] -= ek_gain_tot - ek_gain_actual
 
         # calc changes from above
@@ -862,10 +888,10 @@ def _erode_rainfall_evolve_cuda_sub(
     evapor_rate   : float32,
     flow_eff      : float32,
     turning       : float32,
-    rho_soil_div_aqua : float32,
+    rho_sedi : float32,
     v_cap         : float32,
     v_damping     : float32,
-    g             : float32,
+    g_eff         : float32,
     erosion_eff   : float32,
     erosion_brush : npt.NDArray[np.float32],
     capa_fac : float32,
@@ -944,7 +970,7 @@ def _erode_rainfall_evolve_cuda_sub(
         if not math.isnan(edge['ekin']) and stat['ekin'] > 0:
             stat['ekin'] *= v_damping_fac**2
     # done
-    stat = _normalize_stat_cudev(stat, edge, z_max, z_res, rho_soil_div_aqua)
+    stat = _normalize_stat_cudev(stat, edge, z_max, z_res, rho_sedi)
     stats_sarr[ti, tj] = stat
 
     cuda.syncthreads()
@@ -955,7 +981,7 @@ def _erode_rainfall_evolve_cuda_sub(
         d_stats_sarr,
         # in
         stats_sarr, ti, tj, not_at_outer_edge, z_res, lx, ly,
-        flow_eff, turning, rho_soil_div_aqua, v_cap, v_damping, g,
+        flow_eff, turning, rho_sedi, v_cap, v_damping, g_eff,
         erosion_eff, erosion_brush, capa_fac, capa_fac_v,
         capa_fac_slope, capa_fac_slope_cap,
     )
@@ -967,7 +993,8 @@ def _erode_rainfall_evolve_cuda_sub(
     if not_at_outer_edge:
         for k in range(N_ADJ_P1):
             # could use optimization
-            stat = _add_stats_cudev(stat, d_stats_sarr[ti, tj, k], edge)
+            stat = _add_stats_cudev(
+                stat, d_stats_sarr[ti, tj, k], edge, rho_sedi, g_eff)
         # write back
         stats_cuda[i, j, i_layer_write] = stat
     else:
@@ -993,13 +1020,15 @@ def _erode_rainfall_evolve_cuda_final_sub(
     nx, ny, i, j,
     i_layer_read: int,
     idim: int,
+    rho_sedi: float32,
+    g_eff   : float32,
 ):
     if not _is_outside_map_cudev(nx, ny, i, j):
         # preload data
         stat = stats_cuda[i, j, i_layer_read]
         edge = edges_cuda[i, j]
         # sum
-        _add_stats_cudev(stat, d_stats_cuda[i, j, idim], edge)
+        _add_stats_cudev(stat, d_stats_cuda[i, j, idim], edge, rho_sedi, g_eff)
         _set_stat_zero_cudev(d_stats_cuda[i, j, idim])
         # write back
         stats_cuda[i, j, i_layer_read] = stat
@@ -1016,6 +1045,8 @@ def _erode_rainfall_evolve_cuda_final(
     edges_cuda,
     i_layer_read: int,
     z_res: float32,
+    rho_sedi: float32,
+    g_eff   : float32,
 ):
     """Finalizing by adding back the d_stats_cuda to stats_cuda.
 
@@ -1026,7 +1057,6 @@ def _erode_rainfall_evolve_cuda_final(
     """
     # *** Pending optimization/overhaul ***
     #    - should not store the entire grid, just the edges
-    #    - *** warning: potential racing condition unfixed
     
     # - get thread coordinates -
     nx, ny, _ = stats_cuda.shape
@@ -1039,18 +1069,18 @@ def _erode_rainfall_evolve_cuda_final(
         _erode_rainfall_evolve_cuda_final_sub(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 0,
-        )
+            rho_sedi, g_eff)
         i += 1
         _erode_rainfall_evolve_cuda_final_sub(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 0,
-        )
+            rho_sedi, g_eff)
     # the edge on the other side
     i = nx-1
     _erode_rainfall_evolve_cuda_final_sub(
         stats_cuda, d_stats_cuda,
         edges_cuda, nx, ny, i, j, i_layer_read, 0,
-    )
+        rho_sedi, g_eff)
     # Now do y
     i = p
     for ki in range(ny//(CUDA_TPB_Y-2)):
@@ -1058,18 +1088,18 @@ def _erode_rainfall_evolve_cuda_final(
         _erode_rainfall_evolve_cuda_final_sub(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 1,
-        )
+            rho_sedi, g_eff)
         j += 1
         _erode_rainfall_evolve_cuda_final_sub(
             stats_cuda, d_stats_cuda,
             edges_cuda, nx, ny, i, j, i_layer_read, 1,
-        )
+            rho_sedi, g_eff)
     # the edge on the other side
     j = ny-1
     _erode_rainfall_evolve_cuda_final_sub(
         stats_cuda, d_stats_cuda,
         edges_cuda, nx, ny, i, j, i_layer_read, 1,
-    )
+        rho_sedi, g_eff)
 
 
 def erode_rainfall_evolve_cuda(
@@ -1153,10 +1183,10 @@ def erode_rainfall_evolve_cuda(
                 pars_v['evapor_rate'],
                 pars_v['flow_eff'],
                 pars_v['turning'],
-                pars_v['rho_soil_div_aqua'],
+                pars_v['rho_sedi'],
                 pars_v['v_cap'],
                 pars_v['v_damping'],
-                pars_v['g'],
+                pars_v['g_eff'],
                 pars_v['erosion_eff'],
                 erosion_brush,
                 pars_v['capa_fac'],
@@ -1169,7 +1199,7 @@ def erode_rainfall_evolve_cuda(
             # add back edges
             _erode_rainfall_evolve_cuda_final[cuda_bpg_final, cuda_tpb_final](
                 stats_cuda, d_stats_cuda, edges_cuda, i_layer_read, z_res,
-            )
+                pars_v['rho_sedi'], pars_v['g_eff'])
     
     # - return -
     cuda.synchronize()

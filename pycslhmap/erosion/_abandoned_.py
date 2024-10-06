@@ -143,8 +143,8 @@ def _device_move_fluid(
     zero_stat,
     z_res: float32,
     flow_eff: float32,
-    rho_soil_div_aqua: float32,
-    g: float32,
+    rho_sedi: float32,
+    g_eff: float32,
 ):
     """Move fluids (a.k.a. water (aqua) + sediments (sedi)).
 
@@ -254,7 +254,7 @@ def _device_move_fluid(
         # kinetic energy always flows fully away with current
         d_ek_fac_flow = flow_eff
         d_ek_fac_g = (
-            d_aq_fac + rho_soil_div_aqua * d_se_fac) * g / 2
+            d_aq_fac + rho_sedi * d_se_fac) * g_eff / 2
         
         # kinetic energy gain from gravity
         ek_tot_from_g = float32(0.)
@@ -280,13 +280,13 @@ def _device_move_fluid(
                 # gravitational energy gain
                 # Note: a column of fluid of height from h0 to h1 has
                 #    gravitational energy per area per density of
-                #    g * (h1**2 - h0**2)  / 2.
+                #    g_eff * (h1**2 - h0**2)  / 2.
                 if k:
                     d_ek = (
                         ek_tot_from_g + d_ek_fac_flow * stat['ekin']
                     ) * d_h_k / d_h_tot
                 else:
-                    # kinetic energy flow only (no g gain)
+                    # kinetic energy flow only (no g_eff gain)
                     # remove d_h_k / d_h_tot (which == -1.)
                     #    to avoid precision loss
                     #    resulting in negative stat['ekin']
@@ -459,7 +459,7 @@ def _raindrop_hop(
     E_conserv_fac   : float,
     fric_coeff      : float,
     fric_static_fac : float,
-    g : float = 9.8,
+    g_eff : float = 9.8,
 ):
     """Move the rain drop one step.
     
@@ -491,15 +491,15 @@ def _raindrop_hop(
     b_x, b_y, b_z = _hat(dz_dx, dz_dy, dz_dx**2+dz_dy**2)
     
     # - accelerations -
-    # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g
+    # note that (g_x**2 + g_y**2 + g_z**2 + g_f**2)**0.5 == g_eff
     if np.isclose(_norm(b_x, b_y, b_z), 0.):
         # perfectly flat
-        g_x, g_y, g_z, g_f = 0., 0., 0., g
+        g_x, g_y, g_z, g_f = 0., 0., 0., g_eff
     else:
-        g_x = -b_x * b_z * g # / _norm(b_x, b_y, b_z)**2
-        g_y = -b_y * b_z * g # / _norm(b_x, b_y, b_z)**2
-        g_z = -(b_x**2 + b_y**2) * g # / _norm(b_x, b_y, b_z)**2
-        g_f =  b_z * g # for friction
+        g_x = -b_x * b_z * g_eff # / _norm(b_x, b_y, b_z)**2
+        g_y = -b_y * b_z * g_eff # / _norm(b_x, b_y, b_z)**2
+        g_z = -(b_x**2 + b_y**2) * g_eff # / _norm(b_x, b_y, b_z)**2
+        g_f =  b_z * g_eff # for friction
     # reset velocity to gravity directions if turning
     if turning and not np.isclose(_norm(g_x, g_y), 0.):
         v_new_x, v_new_y, v_new_z = _hat(g_x, g_y, 0., v)
@@ -574,7 +574,7 @@ def _raindrop_hop(
     # record original
     p_x_old, p_y_old, p_z_old = p_x, p_y, p_z
     dz_dx_old, dz_dy_old = dz_dx, dz_dy
-    E_old = g * p_z + v**2/2.    # specific energy
+    E_old = g_eff * p_z + v**2/2.    # specific energy
     # update position / direction
     p_x += d_x
     p_y += d_y
@@ -582,10 +582,10 @@ def _raindrop_hop(
     d_z = p_z - p_z_old    # actual d_z that happened to the drop
     # Update velocity and Fix Energy
     # Obtaining E_new = E_old + _dot(a_f, d) (remove work from friction)
-    # i.e. g * p_z + v_new**2/2.
+    # i.e. g_eff * p_z + v_new**2/2.
     #    = E_old + (a_fx*d_x + a_fy*d_y + a_fx*d_z)
     # v2 = v**2
-    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g * p_z)
+    v2_new = 2 * (E_old + (a_fx*d_x + a_fy*d_y + a_fz*d_z) - g_eff * p_z)
     if v2_new < 0.:
         # the rain drop should be reflected back.
         # Cancel step
@@ -658,7 +658,7 @@ def _erode_raindrop_test(
     E_conserv_fac     : float = 0.8,
     fric_coeff        : float = 0.01,
     fric_static_fac   : float = 1.0,
-    g : float = 9.8,
+    g_eff : float = 9.8,
     do_erosion : bool = True,
     sed_cap_fac  : float = 1.0,
     sed_initial  : float = 0.0,
@@ -703,7 +703,7 @@ def _erode_raindrop_test(
         Static friction is gravity multiplied by this factor.
         Should be smaller but close to 1.
             
-    g : gravitational accceleration in m/s^2
+    g_eff : gravitational accceleration in m/s^2
 
     do_erosion: bool
         Switch to switch on erosion (i.e. actual change in data)
@@ -806,7 +806,7 @@ def _erode_raindrop_test(
                 E_conserv_fac   = E_conserv_fac,
                 fric_coeff      = fric_coeff,
                 fric_static_fac = fric_static_fac,
-                g = g,
+                g_eff = g_eff,
             )
 
             # info
@@ -818,7 +818,7 @@ def _erode_raindrop_test(
             # log
             x_i = _pos_to_ind_d(p_x, map_wid_x, npix_x)
             y_i = _pos_to_ind_d(p_y, map_wid_y, npix_y)
-            E_new =  g * p_z + v**2/2.
+            E_new =  g_eff * p_z + v**2/2.
             paths[x_i, y_i] += 1
             lib_z[i, s] = p_z
             lib_v[i, s] = v
@@ -860,7 +860,7 @@ def _erode_raindrop_test(
 
                 # update pos, v & regulate energy
                 p_z, dz_dx, dz_dy = _get_z_and_dz(p_x, p_y, data, map_widxy)
-                v2_ero = 2 * (E_new - g * p_z)
+                v2_ero = 2 * (E_new - g_eff * p_z)
                 if v2_ero < 0:
                     # cannot conserve energy- break
                     break_state = 3

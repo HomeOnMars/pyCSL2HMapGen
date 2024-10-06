@@ -222,7 +222,7 @@ class ErosionState(HMap):
         self.__stats_ext['d'] = self.stats['soil'] + self.stats['sedi']
         self.__stats_ext['z'] = self.__stats_ext['h'] + self.stats['soil']
         self.__stats_ext['m'] = (
-            self.get_par('rho_soil_div_aqua') * self.stats['sedi']
+            self.get_par('rho_sedi') * self.stats['sedi']
             + self.stats['aqua'])
         mask_m = self.__stats_ext['m'] > 0
         self.__stats_ext['v'][~mask_m] = 0

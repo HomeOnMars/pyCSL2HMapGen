@@ -48,7 +48,7 @@ _ErosionStateDataExtendedDtype : np.dtype = np.dtype([
     ('h'   , np.float32),   # [positive][m] fluid height (h =      sedi+aqua)
     ('d'   , np.float32),   # [positive][m] dirt  height (d = soil+sedi     )
     ('m'   , np.float32),   # [positive][m] fluid mass per rhoS
-                            #        (m = rho_soil_div_aqua * sedi + aqua)
+                            #        (m = rho_sedi * sedi + aqua)
     ('v'   , np.float32),   # [positive][m/s] fluid speed
 ])
 ErosionStateDataExtendedType = npt.NDArray[_ErosionStateDataExtendedDtype]
@@ -111,10 +111,10 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             Warning: dependent on pixel resolution.
         .""",
     },
-    'rho_soil_div_aqua': {
+    'rho_sedi': {
         '_TYPE': np.float32,
         'value': np.float32(1.5),
-        '_DOC_': """Soil/Sediment density vs water density ratio.
+        '_DOC_': """Sediment density in unit of water density.
         .
             Assuming sediment density are the same as soil,
             Even if it mixes with the water.
@@ -141,12 +141,13 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             while 1 means all velocity immediately reset to 0 after each step.
         .""",
     },
-    'g': {
+    'g_eff': {
         '_TYPE': np.float32,
         'value': np.float32(8),
-        '_DOC_': """Gravitational constant in m/s2, multiplied with how efficient the gravitatioal energy is being transformed into momentum.
+        '_DOC_': """Effective gravitational constant, in m/s2.
         .
-            Must: g >= 0
+            Must: g_eff >= 0
+            Gravitational constant multiplied with how efficient the gravitatioal energy is being transformed into momentum.
             0 means no gravitational energy gain (so the water will not move)
         .""",
     },
@@ -218,54 +219,54 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
 
     # Old / In Reserve / Abandoned
     #--------------------------------------------------------------------------
-    'rain_configs': {
-        '_TYPE': npt.NDArray[np.float32],
-        'value': np.array([2.**(-6)], dtype=np.float32),
-        '_DOC_': """Rain configuration.
-        .
-            ***type***
-            ***Add doc here***
-        .""",
-    },
-    'visco_kin_range': {
-        '_TYPE': tuple[np.float32, np.float32],
-        'value': (np.float32(1e-6), np.float32(1.0)),
-        '_DOC_': """Kinematic visocity of water and soils in SI units (m^2/s).
-        .
-            Must have visco_kin_aqua <= visco_kin_soil.
-            It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
-        .""",
-    },
-    'diffuse_eff': {
-        '_TYPE': np.float32,
-        'value': np.float32(0.25),
-        '_DOC_': """Diffusion efficiency.
-        .
-            Should be 0. <= diffuse_eff <= 1.
-            Controls how fast sediments and kinetic energies spread
-                in lakes etc.
-        .""",
-    },
-    'hole_depth': {
-        '_TYPE': np.float32,
-        'value': np.float32(2.**(-8)),
-        '_DOC_': """Maximum depth of the hole allowed
-        by the erosion process to dig per step. Should be >= 0.
-        .
-            If > 0., the erosion process may dig lakes.
-                (but may also dig single pixel holes)
-        .""",
-    },
-    'slope_facs': {
-        '_TYPE': tuple[np.float32, np.float32],
-        'value': (np.float32(1.0), np.float32(1.0)),
-        '_DOC_': """Factor to used in the slope calculation.
-        .
-            Should be 0. < fac < 1.
-            if downhill_fac > upfill_fac, will make more gently sloped hills;
-            else, will make more cliffs
-        .""",
-    },
+    # 'rain_configs': {
+    #     '_TYPE': npt.NDArray[np.float32],
+    #     'value': np.array([2.**(-6)], dtype=np.float32),
+    #     '_DOC_': """Rain configuration.
+    #     .
+    #         ***type***
+    #         ***Add doc here***
+    #     .""",
+    # },
+    # 'visco_kin_range': {
+    #     '_TYPE': tuple[np.float32, np.float32],
+    #     'value': (np.float32(1e-6), np.float32(1.0)),
+    #     '_DOC_': """Kinematic visocity of water and soils in SI units (m^2/s).
+    #     .
+    #         Must have visco_kin_aqua <= visco_kin_soil.
+    #         It is ~1e-6 for water and 1e-2 ~ 1e-1 for mud.
+    #     .""",
+    # },
+    # 'diffuse_eff': {
+    #     '_TYPE': np.float32,
+    #     'value': np.float32(0.25),
+    #     '_DOC_': """Diffusion efficiency.
+    #     .
+    #         Should be 0. <= diffuse_eff <= 1.
+    #         Controls how fast sediments and kinetic energies spread
+    #             in lakes etc.
+    #     .""",
+    # },
+    # 'hole_depth': {
+    #     '_TYPE': np.float32,
+    #     'value': np.float32(2.**(-8)),
+    #     '_DOC_': """Maximum depth of the hole allowed
+    #     by the erosion process to dig per step. Should be >= 0.
+    #     .
+    #         If > 0., the erosion process may dig lakes.
+    #             (but may also dig single pixel holes)
+    #     .""",
+    # },
+    # 'slope_facs': {
+    #     '_TYPE': tuple[np.float32, np.float32],
+    #     'value': (np.float32(1.0), np.float32(1.0)),
+    #     '_DOC_': """Factor to used in the slope calculation.
+    #     .
+    #         Should be 0. < fac < 1.
+    #         if downhill_fac > upfill_fac, will make more gently sloped hills;
+    #         else, will make more cliffs
+    #     .""",
+    # },
 }
 
 # finish init DEFAULT_PARS
