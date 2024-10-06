@@ -90,11 +90,14 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'flow_eff': {
         '_TYPE': np.float32,
-        'value': np.float32(1.0),
+        'value': np.float32(0.75),
         '_DOC_': """Flow efficiency.
         .
-            Should be in 0. < flow_eff <= 1.
-            Controls how well the water flows around.
+            Should be in 0. <= flow_eff < 1.
+            Controls how the water flows around,
+                i.e. momentum-based movements vs gravity-based movements.
+                0 is all gravity,
+                and 1 is all momentum (hence nothing will flow because no gravity is there to initiate movements)
             Do NOT touch this unless you know what you are doing.
         .""",
     },

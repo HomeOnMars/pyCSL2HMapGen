@@ -331,13 +331,14 @@ def _get_v_cudev(
 ) -> float32:
     """Get velocity (in unit of m/s).
 
-    Guarantees v >= 0.
-    Assuming normalized (i.e. either ekin or p to be zero.)
+    Guarantees v >= 0
 
-    *** To be Updated ***
+    ---------------------------------------------------------------------------
     """
     m = _get_m_cudev(stat, rho_soil_div_aqua)
-    return min(_get_p_cudev(stat) / m, v_cap) if m >= z_res else float32(0)
+    return min(
+        math.sqrt(stat['p_x']**2 + stat['p_y']**2 + 2 * m * stat['ekin']) / m,
+        v_cap) if m >= z_res else float32(0)
 
 
 
@@ -588,22 +589,19 @@ def _get_d_hs_cudev(
 def _get_capa_cudev(
     # in
     stat : _ErosionStateDataDtype,
+    v0   : float32,
     slope: float32,
-    z_res: float32,
-    rho_soil_div_aqua: float32,
     v_cap: float32,
     capa_fac: float32,
     capa_fac_v: float32,
     capa_fac_slope: float32,
     capa_fac_slope_cap: float32,
 ) -> float32:
-    """Get sediment capacity."""
-    v = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
     capa = capa_fac * stat['aqua'] * (
-        # v
-        (capa_fac_v*v_cap + v) / ((1+capa_fac_v)*v_cap)
+        # speed-based multiplier
+        (capa_fac_v*v_cap + v0) / ((1+capa_fac_v)*v_cap)
     ) * max(
-        (    # slope
+        (    # slope-based multiplier
             capa_fac_slope*capa_fac_slope_cap + min(slope, capa_fac_slope_cap)
         ) / ((1+capa_fac_slope)*capa_fac_slope_cap),
         float32(0),  # prevent capa going negative
@@ -657,6 +655,8 @@ def _move_fluid_cudev(
     
     stat = stats_sarr[ti, tj]
     z0, h0 = _get_z_cudev(stat), _get_h_cudev(stat)
+    # note: p_x, p_y could be updated and not necessarily the same as in stat
+    p_x, p_y = stat['p_x'], stat['p_y']
 
     for k in range(N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
@@ -669,40 +669,60 @@ def _move_fluid_cudev(
     # - move fluids -
     #--------------------------------------------------------------------------
 
-    # note: p_x, p_y could be updated and not necessarily the same as in stat
-    p_x, p_y = stat['p_x'], stat['p_y']
-
-    # get d_hs_local (positive, == -d_hs_local[0])
-    # no need to set k==0 elem
-    d_h_tot = _get_d_hs_cudev(
-        d_hs_local,  # out
-        stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
-    )
-
-    
     # init temp vars
     m0 = _get_m_cudev(stat, rho_soil_div_aqua)
     rho = m0 / h0    #in units of water density
     p2_0 = p_x**2 + p_y**2    # momentum squared
+    p0 = math.sqrt(p2_0)
+    v0 = _get_v_cudev(stat, z_res, rho_soil_div_aqua, v_cap)
+
+    # # get d_hs_local (positive, == -d_hs_local[0])
+    # # no need to set k==0 elem
+    # d_h_tot = _get_d_hs_cudev(
+    #     d_hs_local,  # out
+    #     stat, stats_sarr, ti, tj, z_res, flow_eff,   # in
+    # )
+    
+    # -- get d_hs_local (positive, == -d_hs_local[0])
+    # no need to set k==0 elem
+    d_h_tot = float32(0.)
+
+    #    turning
+    #    *** add code here! ***
+    #    (must NOT change p2_0)
+
+    #    execute
+    # h0_p_k & h0_g_k: fraction of the h0 for momentum- & gravity- based
+    #    movement per adjacent cell
+    h0_p_k = h0 * flow_eff * (v0 / v_cap)  # all will be gone
+    # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
+    #    the rest may stay too based on terrain
+    h0_g_k = h0 * (float32(1) - flow_eff) / float32(N_ADJ_P1)
+    for k in range(1, N_ADJ_P1):
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        zk = _get_z_cudev(stats_sarr[tki, tkj])
+        d_h_k = float32(0)
+        # --- step 1: momentum-based movements
+        if p2_0:
+            if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
+                d_h_k = (p_x**2/p2_0) * h0_p_k
+            elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
+                d_h_k = (p_y**2/p2_0) * h0_p_k
+        # --- step 2: gravity-based movements
+        d_h_k += min(max(z0 - h0_p_k - zk, 0), h0_g_k)
+
+        # set d_hs_local
+        d_hs_local[k] = d_h_k
+        d_h_tot += d_h_k
+
+    d_hs_local[0] = -d_h_tot
+
+    # -- calc momentum changes
+    # init temp vars
     m02g_2 = 2 * m0**2 * g
     # momentum gain (from kinetic energy debt)
-    # _pf2k means __per_fac2_k
+    #    _pf2k means __per_fac2_k
     d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']
-    
-    # # get d_h_k
-    # d_h_tot = float32(0.)
-    # for k in range(1, N_ADJ_P1):
-    #     # *** Fix below! ***
-    #     d_h_k = ???
-
-    #     # set d_hs_local
-    #     d_hs_local[k] = d_h_k
-    #     d_h_tot += d_h_k
-
-    # d_hs_local[0] = -d_h_tot
-
-
-    # calc momentum changes
     ek_gain_tot = float32(0.)    # Kinetic energy gain of the system
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
@@ -728,8 +748,7 @@ def _move_fluid_cudev(
             # # kinetic energy gain from gravity only goes to 1 direction.
             # if   k == 1 or k == 2: d_p2_x_k_pf2k += d_p2_from_g_pf2k
             # elif k == 3 or k == 4: d_p2_y_k_pf2k += d_p2_from_g_pf2k
-            
-            # Now add the momentum loss from ekin debt
+            # # Now add the momentum loss from ekin debt
             # p2_from_ek_fac = 1 + (
             #    d_p2_from_ek_pf2k / (d_p2_x_k_pf2k + d_p2_y_k_pf2k))
             # if not math.isnan(p2_from_ek_fac):
@@ -783,7 +802,7 @@ def _move_fluid_cudev(
                 
             
 
-    # parse amount of fluid into amount of sedi, aqua, ekin
+    # -- parse amount of fluid into amount of sedi, aqua, ekin
     if d_h_tot: # only do things if something actually moved
         
         # factions that flows away:
@@ -832,9 +851,8 @@ def _move_fluid_cudev(
             slope /= d_h_tot
         # get capa
         capa = _get_capa_cudev(
-            stat, slope, z_res, rho_soil_div_aqua, v_cap,
-            capa_fac, capa_fac_v,
-            capa_fac_slope, capa_fac_slope_cap)
+            stat, v0, slope, v_cap,
+            capa_fac, capa_fac_v, capa_fac_slope, capa_fac_slope_cap)
         # do erosion / deposition
         if capa > stat['sedi']:    # erode
             # get erosion amount for this cell
