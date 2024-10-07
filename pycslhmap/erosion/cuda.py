@@ -428,18 +428,18 @@ def _normalize_stat_cudev(
         if not math.isnan(edge['ekin']):
             stat['ekin'] = edge['ekin']
         else:
-            p = _get_p_cudev(stat)
-            if p > 0:
+            p2 = stat['p_x']**2 + stat['p_y']**2
+            if p2 > 0:
                 # attempt to put energy back into momentum
                 m_2 = _get_m_cudev(stat, rho_sedi) * 2
-                dp = math.sqrt(m_2 * abs(stat['ekin']))
-                if stat['ekin'] < 0: dp = -dp
-                stat['ekin'] = 0
-                if dp < -p:
+                dp2 = m_2 * stat['ekin']
+                if p2 < -dp2:
                     # cap the removal of energy so p doesn't go negative
-                    stat['ekin'] = ((dp + p)**2 / m_2) if m_2 > z_res else 0
-                    dp = -p
-                p_fac = max((1+dp/p), 0)    # positive
+                    stat['ekin'] = (p2 + dp2) / m_2 if m_2 > z_res else 0
+                    dp2 = -p2
+                else:
+                    stat['ekin'] = 0
+                p_fac = math.sqrt(max(1+dp2/p2, 0))
                 if math.isnan(edge['p_x']): stat['p_x'] *= p_fac
                 if math.isnan(edge['p_y']): stat['p_y'] *= p_fac
     
