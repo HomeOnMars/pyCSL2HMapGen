@@ -752,7 +752,7 @@ def _move_fluid_cudev(
     h0_p_k = h0 * (float32(1) - flow_eff) * (v0 / v_cap)  # all will be gone
     # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
     #    the rest may stay too based on terrain
-    h0_g_k = h0 * flow_eff / float32(N_ADJ_P1)
+    h0_g_k = h0 * flow_eff / float32(N_ADJ_P1-1)
     # momentum gain (from kinetic energy debt; negative)
     d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']    # _pf2k means "per (fac_k)**2"
     ek_gain_paid = float32(0)    # Kinetic energy gain of the system
