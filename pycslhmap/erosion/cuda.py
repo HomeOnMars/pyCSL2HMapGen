@@ -236,6 +236,13 @@ def _get_sign_cudev(x) -> float32:
     return float32(-1) if x < 0 else float32(1)
 
 
+
+@cuda.jit(device=True, fastmath=True)
+def _signed_sqrt_cudev(x) -> float32:
+    """Signed sqrt."""
+    return -math.sqrt(-x) if x < 0 else math.sqrt(x)
+
+
 #-----------------------------------------------------------------------------#
 #    Device Functions: Stats calc
 #-----------------------------------------------------------------------------#
@@ -596,6 +603,60 @@ def _get_capa_cudev(
     return capa
 
 
+@cuda.jit(device=True, fastmath=True)
+def _get_d_p_from_g_cudev(
+    # in
+    stats_sarr,
+    ti, tj, k,  # int
+    oi0, z0, h0, m0, p2_0,
+    d_h_k, grad_x, grad_y,
+    lx, ly, g_eff,
+) -> tuple[float32, float32]:
+    """Calc momentum gain from proposed movement d_h_k.
+    
+    Used in _move_fluid_cudev().
+
+    ---------------------------------------------------------------------------
+    """
+    fac_k = d_h_k / h0    # move factor
+    if fac_k > 0:    # only do things if movement are proposed
+        tki, tkj = _get_tkij_cudev(ti, tj, k)
+        zk = _get_z_cudev(stats_sarr[tki, tkj])
+        # calc momemtum gain
+        
+        # momentum gain (from gravity) squared (per move factor squared)
+        #    assuming all kinetic eneregy translated to momentum
+        #    (p_from_g)**2 == 2 * d_m_k * ek_from_g_k
+        #        where d_m_k = m0 * fac_k,
+        #        ek_from_g_k = m0 * g_eff * fac_k * (z0 - zk - d_h_k)
+        #    divide both sides by (fac_k)**2 and we have
+        #d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k) #, i.e.
+        d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k)
+        ek_from_g_k = d_p2_from_g_pf2k / (2 * m0) * fac_k
+        d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
+        grad2_k = (
+            max(oi0 - stats_sarr[tki, tkj]['soil'], 0) / _get_l_cudev(
+            k, lx, ly))**2
+        # Summing up,
+        #    with d_p2_from_g distributed on x/y axis according to the slope,
+        # *** add more rows if ADJ_OFFSETS were expanded ***
+        if   k == 1 or k == 2:
+            grad2 = grad2_k + grad_y**2
+            fac = (grad2_k/grad2) if grad2 else float32(1)
+        elif k == 3 or k == 4:
+            grad2 = grad2_k + grad_x**2
+            fac = (1 - grad2_k/grad2) if grad2 else float32(1)
+            
+        # first add momentum from gravity
+        dd_p_x_k = _signed_sqrt_cudev(d_p2_from_g_pf2k  * fac)  * fac_k
+        dd_p_y_k = _signed_sqrt_cudev(d_p2_from_g_pf2k*(1-fac)) * fac_k
+    else:
+        d_p2_from_g_pf2k = float32(0)
+        dd_p_x_k, dd_p_y_k = float32(0), float32(0)
+
+    return dd_p_x_k, dd_p_y_k, ek_from_g_k
+
+
 
 @cuda.jit(device=True, fastmath=True)
 def _move_fluid_cudev(
@@ -684,135 +745,98 @@ def _move_fluid_cudev(
         p2_0 = p_x**2 + p_y**2
         
     # --- step 2: init vars
+    p0 = math.sqrt(p2_0)
     v0 = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
-    # h0_p_k & h0_g_k: fraction of the h0 for momentum- & gravity- based
+    # h0_p_k & h0_g_k: fraction of the h0 reserved for momentum- & gravity- based
     #    movement per adjacent cell
     h0_p_k = h0 * (float32(1) - flow_eff) * (v0 / v_cap)  # all will be gone
     # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
     #    the rest may stay too based on terrain
     h0_g_k = h0 * flow_eff / float32(N_ADJ_P1)
-    
+    # momentum gain (from kinetic energy debt; negative)
+    d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']    # _pf2k means "per (fac_k)**2"
+    ek_gain_paid = float32(0)    # Kinetic energy gain of the system
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
-        d_h_k = float32(0)
-        d_p_x_k, d_p_y_k = float32(0), float32(0)
+        # d_h_k = float32(0)
+        # d_h_p_k, d_h_g_k = float32(0), float32(0)    # dh from p and from g
+        d_p_x_k, d_p_y_k = float32(0), float32(0)    # dp in x and y axis
         
         # --- step 3: momentum-based movements
         if p2_0 and h0_p_k:
             if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
-                d_h_k = (p_x**2/p2_0) * h0_p_k
+                d_h_p_k = (p_x**2/p2_0) * h0_p_k
             elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
-                d_h_k = (p_y**2/p2_0) * h0_p_k
-            if d_h_k:    # save momentum transfer
-                d_p_x_k = p_x * (d_h_k / h0)
-                d_p_y_k = p_y * (d_h_k / h0)
+                d_h_p_k = (p_y**2/p2_0) * h0_p_k
+            else:
+                d_h_p_k = float32(0)
+            if d_h_p_k:    # set momentum transfer
+                d_p_x_k = p_x * (d_h_p_k / h0)
+                d_p_y_k = p_y * (d_h_p_k / h0)
+
         
         # --- step 4: gravity-based movements
         #    (always allowed)
-        d_h_k += min(max(z0 - zk, 0), h0_g_k)
+        d_h_g_k = min(max(z0 - zk, 0), h0_g_k)
 
-        # --- step 5: calc momentum changes
-
-        # *** Update code here! ***
         
+        # --- step 5: calc momentum changes
+        d_h_k = d_h_p_k + d_h_g_k
+        dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
+            stats_sarr, ti, tj, k, oi0, z0, h0, m0, p2_0,
+            d_h_k, grad_x, grad_y, lx, ly, g_eff)
+        # temporarily store d_p_x_k as dd_p_x_k
+        dd_p_x_k += d_p_x_k; dd_p_y_k += d_p_y_k
+        if d_h_k > 0 and ek_from_g_k < 0 and (
+            # *** add more rows if ADJ_OFFSETS were expanded ***
+            (   k == 1 and dd_p_x_k > 0)
+            or (k == 2 and dd_p_x_k < 0)
+            or (k == 3 and dd_p_y_k > 0)
+            or (k == 4 and dd_p_y_k < 0)
+            ):
+            
+            # reject momentum-based movement
+            d_h_p_k = float32(0)
+            # reflect momentum
+            if k == 1 or k == 2:
+                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k*2
+            else:
+                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k*2
+            # re-calculate
+            d_h_k = d_h_p_k + d_h_g_k
+            dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
+                stats_sarr, ti, tj, k, oi0, z0, h0, m0, p2_0,
+                d_h_k, grad_x, grad_y, lx, ly, g_eff)
+            d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
+        else:
+            # confirm adding momentum
+            d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
+                
+        # now subtract the energy debt
+        if d_p2_from_ek_pf2k:
+            fac_k = d_h_k / h0    # move factor
+            d_p2_k = d_p_x_k**2 + d_p_y_k**2
+            d_p2_paid_back = min(    # positive
+                -d_p2_from_ek_pf2k*fac_k**2,
+                d_p2_k,    # upper limit
+            )
+            fac = 1-_signed_sqrt_cudev(d_p2_paid_back / d_p2_k)
+            if math.isfinite(fac):
+                d_p_x_k *= fac
+                d_p_y_k *= fac
+                d_stats_sarr[ti, tj, 0]['ekin'] += d_p2_paid_back / (2*m0*fac_k)
+
         # --- step 6: summing up
-        d_hs_local[k] = d_h_k
+        d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
+        d_stats_sarr[tki, tkj, k]['p_y'] = d_p_y_k
+        d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
+        d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
+        ek_gain_paid += ek_from_g_k    # kinetic energy added from gravity
+        d_hs_local[k] = d_h_k    # d_h_p_k + d_h_g_k
         d_h_tot += d_h_k
     d_hs_local[0] = -d_h_tot
-    
 
-    # -- calc momentum changes
-    # init temp vars
-    m02g_2 = 2 * m0**2 * g_eff
-    # momentum gain (from kinetic energy debt)
-    #    _pf2k means __per_fac2_k
-    d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']
-    ek_gain_tot = float32(0)    # Kinetic energy gain of the system
-    for k in range(1, N_ADJ_P1):
-        tki, tkj = _get_tkij_cudev(ti, tj, k)
-        zk = _get_z_cudev(stats_sarr[tki, tkj])
-        d_h_k = d_hs_local[k]
-        fac_k = d_h_k / h0    # move factor
-        
-        if fac_k > 0:    # only do things if movement are proposed
-            
-            # calc momemtum gain
-            
-            # momentum gain (from gravity) squared (per move factor squared)
-            #    assuming all kinetic eneregy translated to momentum
-            #    (p_from_g)**2 == 2 * d_m_k * ek_from_g_k
-            #        where d_m_k = m0 * fac_k,
-            #        ek_from_g_k = g_eff * d_m_k * (z0 - zk - d_h_k)
-            #    divide both sides by (fac_k)**2 and we have
-            #d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k) #, i.e.
-            d_p2_from_g_pf2k = 2 * m0**2 * g_eff *(z0 - zk - d_h_k)
-            ek_from_g_k = g_eff * m0 * fac_k * (z0 - zk - d_h_k)
-
-            d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
-            # adding the momentum loss from ekin debt
-            tot_fac_k = math.sqrt(1 + d_p2_from_ek_pf2k / d_p2_k_pf2k) * fac_k
-            # Warning: tot_fac_k could be nan
-
-            # slope (squared) on this side
-            grad2_k = (
-                max(oi0 - stats_sarr[tki, tkj]['soil'], 0) / _get_l_cudev(
-                k, lx, ly))**2
-            
-            # Summing up,
-            #    with d_p2_from_g distributed on x/y axis according to the slope,
-            # *** add more rows if ADJ_OFFSETS were expanded ***
-            if   k == 1 or k == 2:
-                grad2 = grad2_k + grad_y**2
-                fac = grad2_k/grad2 if grad2 else float32(1)
-                sign  = float32(-1) if k == 1 else float32(1)
-                
-                d_p_x_k = sign*math.sqrt(
-                    sign*p_x*abs(p_x) + d_p2_from_g_pf2k*fac) * tot_fac_k
-                
-                d_p_y_k = _get_sign_cudev(p_y) * math.sqrt(abs(
-                    p_y**2
-                    + _get_sign_cudev(p_y * d_p2_from_g_pf2k)
-                    * d_p2_from_g_pf2k * (1 - fac)
-                )) * tot_fac_k
-                
-            elif k == 3 or k == 4:
-                grad2 = grad2_k + grad_x**2
-                sign  = float32(-1) if k == 3 else float32(1)
-                
-                d_p_x_k = _get_sign_cudev(p_x) * math.sqrt(abs(
-                    p_x**2
-                    + _get_sign_cudev(p_x * d_p2_from_g_pf2k)
-                    * d_p2_from_g_pf2k * (1 - fac)
-                )) * tot_fac_k
-                
-                d_p_y_k = sign*math.sqrt(
-                    sign*p_y*abs(p_y) + d_p2_from_g_pf2k*fac) * tot_fac_k
-
-            
-            if math.isfinite(d_p_x_k) and math.isfinite(d_p_y_k):
-                # write changes
-                d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
-                d_stats_sarr[tki, tkj, k]['p_y'] = d_p_y_k
-                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
-                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
-                ek_gain_tot += ek_from_g_k    # kinetic energy added from gravity
-                d_stats_sarr[ti, tj, 0]['ekin'] -= stat['ekin'] * fac_k
-            else:
-                # reject movement
-                d_h_tot -= d_h_k
-                d_hs_local[k] = float32(0)
-                # reflect momentum
-                # *** add more rows if ADJ_OFFSETS were expanded ***
-                if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
-                    d_stats_sarr[ti, tj, 0]['p_x'] -= p_x * fac_k * 2
-                elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
-                    d_stats_sarr[ti, tj, 0]['p_y'] -= p_y * fac_k * 2
-                d_p_x_k, d_p_y_k = float32(0), float32(0)
-            
-    d_hs_local[0] = -d_h_tot
-                
-            
 
     # -- parse amount of fluid into amount of sedi, aqua, ekin
     if d_h_tot: # only do things if something actually moved
@@ -830,7 +854,7 @@ def _move_fluid_cudev(
             ek_gain_actual += d_h_k * (2*(z0 - zk) - d_h_k)
         ek_gain_actual = (d_aq_fac + rho_sedi * d_se_fac) * g_eff / 2 * (
             ek_gain_actual - d_h_tot**2)
-        d_stats_sarr[ti, tj, 0]['ekin'] += ek_gain_actual - ek_gain_tot
+        d_stats_sarr[ti, tj, 0]['ekin'] += ek_gain_actual - ek_gain_paid
 
         # calc changes from above
         for k in range(N_ADJ_P1):
