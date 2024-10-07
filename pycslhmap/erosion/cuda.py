@@ -682,7 +682,7 @@ def _move_fluid_cudev(
         # update stat
         stat['p_x'], stat['p_y'] = p_x, p_y
         p2_0 = p_x**2 + p_y**2
-
+        
     # --- step 2: init vars
     v0 = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
     # h0_p_k & h0_g_k: fraction of the h0 for momentum- & gravity- based
@@ -691,20 +691,30 @@ def _move_fluid_cudev(
     # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
     #    the rest may stay too based on terrain
     h0_g_k = h0 * flow_eff / float32(N_ADJ_P1)
+    
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
         d_h_k = float32(0)
+        d_p_x_k, d_p_y_k = float32(0), float32(0)
+        
         # --- step 3: momentum-based movements
-        if p2_0:
+        if p2_0 and h0_p_k:
             if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
                 d_h_k = (p_x**2/p2_0) * h0_p_k
             elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
                 d_h_k = (p_y**2/p2_0) * h0_p_k
+            if d_h_k:    # save momentum transfer
+                d_p_x_k = p_x * (d_h_k / h0)
+                d_p_y_k = p_y * (d_h_k / h0)
+        
         # --- step 4: gravity-based movements
+        #    (always allowed)
         d_h_k += min(max(z0 - zk, 0), h0_g_k)
 
-        # set d_hs_local
+        # --- step 5: calc momentum changes
+
+        # --- step 6: summing up
         d_hs_local[k] = d_h_k
         d_h_tot += d_h_k
     d_hs_local[0] = -d_h_tot
@@ -729,13 +739,13 @@ def _move_fluid_cudev(
             
             # momentum gain (from gravity) squared (per move factor squared)
             #    assuming all kinetic eneregy translated to momentum
-            #    (p_from_g)**2 == 2 * d_m_k * ek_from_g
+            #    (p_from_g)**2 == 2 * d_m_k * ek_from_g_k
             #        where d_m_k = m0 * fac_k,
-            #        ek_from_g = g_eff * d_m_k * (z0 - zk - d_h_k)
+            #        ek_from_g_k = g_eff * d_m_k * (z0 - zk - d_h_k)
             #    divide both sides by (fac_k)**2 and we have
             #d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k) #, i.e.
             d_p2_from_g_pf2k = 2 * m0**2 * g_eff *(z0 - zk - d_h_k)
-            ek_from_g = g_eff * m0 * fac_k * (z0 - zk - d_h_k)
+            ek_from_g_k = g_eff * m0 * fac_k * (z0 - zk - d_h_k)
 
             d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
             # adding the momentum loss from ekin debt
@@ -784,7 +794,7 @@ def _move_fluid_cudev(
                 d_stats_sarr[tki, tkj, k]['p_y'] = d_p_y_k
                 d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
                 d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
-                ek_gain_tot += ek_from_g    # kinetic energy added from gravity
+                ek_gain_tot += ek_from_g_k    # kinetic energy added from gravity
             else:
                 # reject movement
                 d_h_tot -= d_h_k
