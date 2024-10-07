@@ -714,6 +714,8 @@ def _move_fluid_cudev(
 
         # --- step 5: calc momentum changes
 
+        # *** Update code here! ***
+        
         # --- step 6: summing up
         d_hs_local[k] = d_h_k
         d_h_tot += d_h_k
@@ -726,7 +728,7 @@ def _move_fluid_cudev(
     # momentum gain (from kinetic energy debt)
     #    _pf2k means __per_fac2_k
     d_p2_from_ek_pf2k = 2 * m0 * stat['ekin']
-    ek_gain_tot = float32(0.)    # Kinetic energy gain of the system
+    ek_gain_tot = float32(0)    # Kinetic energy gain of the system
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
@@ -795,17 +797,18 @@ def _move_fluid_cudev(
                 d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k
                 d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k
                 ek_gain_tot += ek_from_g_k    # kinetic energy added from gravity
+                d_stats_sarr[ti, tj, 0]['ekin'] -= stat['ekin'] * fac_k
             else:
                 # reject movement
                 d_h_tot -= d_h_k
-                d_hs_local[k] = float32(0.)
+                d_hs_local[k] = float32(0)
                 # reflect momentum
                 # *** add more rows if ADJ_OFFSETS were expanded ***
                 if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
                     d_stats_sarr[ti, tj, 0]['p_x'] -= p_x * fac_k * 2
                 elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
                     d_stats_sarr[ti, tj, 0]['p_y'] -= p_y * fac_k * 2
-                d_p_x_k, d_p_y_k = float32(0.), float32(0.)
+                d_p_x_k, d_p_y_k = float32(0), float32(0)
             
     d_hs_local[0] = -d_h_tot
                 
@@ -819,7 +822,7 @@ def _move_fluid_cudev(
         d_aq_fac = stat['aqua'] / h0  # should == 1 - d_se_fac
         
         # making sure energy is conserved
-        ek_gain_actual = float32(0.)
+        ek_gain_actual = float32(0)
         for k in range(1, N_ADJ_P1):
             tki, tkj = _get_tkij_cudev(ti, tj, k)
             zk = _get_z_cudev(stats_sarr[tki, tkj])
@@ -827,7 +830,7 @@ def _move_fluid_cudev(
             ek_gain_actual += d_h_k * (2*(z0 - zk) - d_h_k)
         ek_gain_actual = (d_aq_fac + rho_sedi * d_se_fac) * g_eff / 2 * (
             ek_gain_actual - d_h_tot**2)
-        d_stats_sarr[ti, tj, 0]['ekin'] -= ek_gain_tot - ek_gain_actual
+        d_stats_sarr[ti, tj, 0]['ekin'] += ek_gain_actual - ek_gain_tot
 
         # calc changes from above
         for k in range(N_ADJ_P1):
@@ -1142,7 +1145,7 @@ def erode_rainfall_evolve_cuda(
     'kwargs' are not used.
 
     z_res:
-        must > 0.
+        must > 0
     ---------------------------------------------------------------------------
     """
 
