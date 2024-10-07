@@ -632,7 +632,7 @@ def _get_d_p_from_g_cudev(
         #    divide both sides by (fac_k)**2 and we have
         #d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k) #, i.e.
         d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k)
-        ek_from_g_k = d_p2_from_g_pf2k / (2 * m0) * fac_k
+        ek_from_g_k = d_p2_from_g_pf2k / (2 * m0) * fac_k if m0 else float32(0)
         d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
         grad2_k = (
             max(oi0 - stats_sarr[tki, tkj]['soil'], 0) / _get_l_cudev(
@@ -723,7 +723,7 @@ def _move_fluid_cudev(
     # no need to set k==0 elem
     d_h_tot = float32(0)
     grad_x, grad_y = float32(0), float32(0)
-    if p2_0:
+    if p2_0 and m0 > z_res:
         # --- step 1: turning
         # figuring out the local gradient (based on soil height)
         sign_x = -1 if (
@@ -825,7 +825,9 @@ def _move_fluid_cudev(
             if math.isfinite(fac):
                 d_p_x_k *= fac
                 d_p_y_k *= fac
-                d_stats_sarr[ti, tj, 0]['ekin'] += d_p2_paid_back / (2*m0*fac_k)
+                if m0 and fac_k:
+                    d_stats_sarr[ti, tj, 0]['ekin'] += (
+                        d_p2_paid_back / (2*m0*fac_k))
 
         # --- step 6: summing up
         d_stats_sarr[tki, tkj, k]['p_x'] = d_p_x_k
