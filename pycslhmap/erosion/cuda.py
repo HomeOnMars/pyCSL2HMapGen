@@ -388,33 +388,6 @@ def _get_zfg_cudev(
     """Get height z' for gradient calc."""
     return stat['soil'] + (stat['sedi'] + stat['aqua']) / 2
 
-
-
-@cuda.jit(device=True, fastmath=True)
-def _get_grad_xy_cudev(
-    # in
-    stats_sarr : ErosionStateDataType,
-    ti  : int,
-    tj  : int,
-    lx  : float32,
-    ly  : float32,
-) -> tuple[float32, float32]:
-    """Get local gradient in x and y direction for movement calc.
-
-    ---------------------------------------------------------------------------
-    """
-    sign_x = -1 if (_get_zfg_cudev(  stats_sarr[ti-1, tj])
-                    < _get_zfg_cudev(stats_sarr[ti+1, tj])) else 1
-    sign_y = -1 if (_get_zfg_cudev(  stats_sarr[ti, tj-1])
-                    < _get_zfg_cudev(stats_sarr[ti, tj+1])) else 1
-    grad_x = sign_x * max(
-        _get_zfg_cudev(stats_sarr[ti, tj]) - _get_zfg_cudev(stats_sarr[ti+sign_x, tj]),
-        0) / lx
-    grad_y = sign_y * max(
-        _get_zfg_cudev(stats_sarr[ti, tj]) - _get_zfg_cudev(stats_sarr[ti, tj+sign_y]),
-        0) / ly
-    return grad_x, grad_y
-
     
 
 @cuda.jit(device=True, fastmath=True)
@@ -1046,7 +1019,16 @@ def _erode_rainfall_evolve_cuda_sub(
     p_x, p_y = stat['p_x'], stat['p_y']
     if p0:
         # figuring out the local gradient (based on soil height)
-        grad_x, grad_y = _get_grad_xy_cudev(stats_sarr, ti, tj, lx, ly)
+        sign_x = -1 if (_get_zfg_cudev(  stats_sarr[ti-1, tj])
+                        < _get_zfg_cudev(stats_sarr[ti+1, tj])) else 1
+        sign_y = -1 if (_get_zfg_cudev(  stats_sarr[ti, tj-1])
+                        < _get_zfg_cudev(stats_sarr[ti, tj+1])) else 1
+        grad_x = sign_x * max(
+            _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[ti+sign_x, tj]),
+            0) / lx
+        grad_y = sign_y * max(
+            _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[ti, tj+sign_y]),
+            0) / ly
 
         # set the scale of the gradient vector
         if turning_gradref:
