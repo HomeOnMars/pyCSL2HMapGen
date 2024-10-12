@@ -616,7 +616,7 @@ def _get_d_p_from_g_cudev(
     # in
     stats_sarr,
     ti, tj, k,  # int
-    oi0, z0, h0, m0, p2_0,
+    stat, z0, h0, m0, p2_0,
     d_h_k, grad_x, grad_y,
     lx, ly, g_eff,
 ) -> tuple[float32, float32, float32]:
@@ -645,9 +645,9 @@ def _get_d_p_from_g_cudev(
             d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k)
             ek_from_g_k = d_p2_from_g_pf2k / (2 * m0) * fac_k
         d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
-        grad2_k = (
-            max(oi0 - stats_sarr[tki, tkj]['soil'], 0) / _get_l_cudev(
-            k, lx, ly))**2
+        grad2_k = (max(
+            _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[tki, tkj]),
+            0) / _get_l_cudev(k, lx, ly))**2
         # Summing up,
         #    with d_p2_from_g distributed on x/y axis according to the slope,
         # *** add more rows if ADJ_OFFSETS were expanded ***
@@ -766,13 +766,13 @@ def _move_fluid_cudev(
         
         # --- step 4: gravity-based movements
         #    (always allowed)
-        d_h_g_k = min(max(z0 - zk, 0), h0_g_k)
+        d_h_g_k = min(max((z0 - zk)/2, 0), h0_g_k)
 
         
         # --- step 5: calc momentum changes
         d_h_k = d_h_p_k + d_h_g_k
         dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
-            stats_sarr, ti, tj, k, oi0, z0, h0, m0, p2_0,
+            stats_sarr, ti, tj, k, stat, z0, h0, m0, p2_0,
             d_h_k, grad_x, grad_y, lx, ly, g_eff)
         # temporarily store d_p_x_k as dd_p_x_k
         dd_p_x_k += d_p_x_k; dd_p_y_k += d_p_y_k
@@ -794,7 +794,7 @@ def _move_fluid_cudev(
             # re-calculate
             d_h_k = d_h_p_k + d_h_g_k
             dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
-                stats_sarr, ti, tj, k, oi0, z0, h0, m0, p2_0,
+                stats_sarr, ti, tj, k, stat, z0, h0, m0, p2_0,
                 d_h_k, grad_x, grad_y, lx, ly, g_eff)
             d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
         else:
