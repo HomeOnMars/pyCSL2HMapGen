@@ -28,7 +28,7 @@ from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 #    i.e. translates mass into mass-equivalent water height
 # fluid is water + sediment
 
-_ErosionStateDataDtype : np.dtype = np.dtype([
+ErosionStateDataDtype : np.dtype = np.dtype([
     # note: nan might be noted as -1 in positive fields
     #       positive means not negative (i.e. incl. zero)
     ('soil', np.float32),   # [positive][m] soil (solid) height
@@ -40,9 +40,10 @@ _ErosionStateDataDtype : np.dtype = np.dtype([
     ('ekin', np.float32),   # [negative][m^3/s^2] LEFTOVER kinetic energy debt of fluid per rhoS
                             #     Could be either positive or negative
 ])
-ErosionStateDataType = npt.NDArray[_ErosionStateDataDtype]
+ErosionStateDataType = npt.NDArray[ErosionStateDataDtype]
 
-_ErosionStateDataExtendedDtype : np.dtype = np.dtype([
+# ErosionStateDataExtendedDtype
+ErosionStateDataExtDtype : np.dtype = np.dtype([
     # note: nan might be noted as -1 in positive fields
     ('z'   , np.float32),   # [positive][m] total height (z = soil+sedi+aqua)
     ('h'   , np.float32),   # [positive][m] fluid height (h =      sedi+aqua)
@@ -51,7 +52,7 @@ _ErosionStateDataExtendedDtype : np.dtype = np.dtype([
                             #        (m = rho_sedi * sedi + aqua)
     ('v'   , np.float32),   # [positive][m/s] fluid speed
 ])
-ErosionStateDataExtendedType = npt.NDArray[_ErosionStateDataExtendedDtype]
+ErosionStateDataExtType = npt.NDArray[ErosionStateDataExtDtype]
 
 ParsValueType = (
     float|np.float32|npt.NDArray[np.float32]|tuple[np.float32, np.float32]

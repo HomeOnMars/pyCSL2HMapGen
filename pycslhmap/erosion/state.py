@@ -40,8 +40,8 @@ from ..util import (
 )
 from .defaults import (
     DEFAULT_PARS,
-    _ErosionStateDataDtype, ErosionStateDataType,
-    _ErosionStateDataExtendedDtype, ErosionStateDataExtendedType,
+    ErosionStateDataDtype, ErosionStateDataType,
+    ErosionStateDataExtDtype, ErosionStateDataExtType,
     ParsValueType, ParsType,
 )
 from .cuda import (
@@ -128,15 +128,15 @@ class ErosionState(HMap):
         self.__done__init: bool = False
         # actual values
         self.stats: ErosionStateDataType = np.zeros(
-            hmap.npix_xy, dtype=_ErosionStateDataDtype)
+            hmap.npix_xy, dtype=ErosionStateDataDtype)
         # boundary conditions (will stay constant)
         #    unset pixels will be denoted as np.nan
         self.edges: ErosionStateDataType = np.zeros(
-            hmap.npix_xy, dtype=_ErosionStateDataDtype)
+            hmap.npix_xy, dtype=ErosionStateDataDtype)
         # parameters
         self.__pars = deepcopy(pars)
         # extended info on stats
-        self.__stats_ext: None|ErosionStateDataExtendedType = None
+        self.__stats_ext: None|ErosionStateDataExtType = None
         # cycles of erosions ran after initialization
         self.__i_cycle: int = 0
         self.__i_step : int = 0
@@ -208,7 +208,7 @@ class ErosionState(HMap):
         return self.__log_txts[-1] if self.__log_txts else ''
 
     @property
-    def stats_ext(self) -> ErosionStateDataExtendedType:
+    def stats_ext(self) -> ErosionStateDataExtType:
         """Calculate the extended data of self.stats"""
         # init
         if (
@@ -216,7 +216,7 @@ class ErosionState(HMap):
             or self.__stats_ext.shape != self.stats.shape
         ):
             self.__stats_ext = np.empty(
-                self.stats.shape, dtype=_ErosionStateDataExtendedDtype)
+                self.stats.shape, dtype=ErosionStateDataExtDtype)
         # re-calc
         self.__stats_ext['h'] = self.stats['sedi'] + self.stats['aqua']
         self.__stats_ext['d'] = self.stats['soil'] + self.stats['sedi']

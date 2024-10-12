@@ -45,8 +45,7 @@ from ..util import (
     VerboseType,
 )
 from .defaults import (
-    _ErosionStateDataDtype, ErosionStateDataType,
-    _ErosionStateDataExtendedDtype, ErosionStateDataExtendedType,
+    ErosionStateDataDtype, ErosionStateDataType,
 )
 from ..util import _LOAD_ORDER; _LOAD_ORDER._add(__spec__, __doc__)
 
@@ -84,7 +83,7 @@ ADJ_OFFSETS : tuple = (
 N_ADJ_P1 : int = 5  # == len(ADJ_OFFSETS)
                     # must be odd number
 
-_NAN_STAT : npt.NDArray = np.full((1,), np.nan, dtype=_ErosionStateDataDtype)
+_NAN_STAT : npt.NDArray = np.full((1,), np.nan, dtype=ErosionStateDataDtype)
 
 
 
@@ -250,7 +249,7 @@ def _signed_sqrt_cudev(x) -> float32:
 
 @cuda.jit(device=True, fastmath=True)
 def _set_stat_zero_cudev(
-    stat: _ErosionStateDataDtype,    # in/out
+    stat: ErosionStateDataDtype,    # in/out
 ):
     """Init stat to zero."""
     stat['soil'] = 0
@@ -266,13 +265,13 @@ def _set_stat_zero_cudev(
 @cuda.jit(device=True, fastmath=True)
 def _add_stats_cudev(
     # in/out
-    stat: _ErosionStateDataDtype,
+    stat: ErosionStateDataDtype,
     # in
-    stat_add: _ErosionStateDataDtype,
-    edge: _ErosionStateDataDtype,
+    stat_add: ErosionStateDataDtype,
+    edge: ErosionStateDataDtype,
     rho_sedi: float32,
     g_eff   : float32,
-) -> _ErosionStateDataDtype:
+) -> ErosionStateDataDtype:
     """Adding stat_add to stat if edge is not set, else reset to edge.
 
     ---------------------------------------------------------------------------
@@ -309,7 +308,7 @@ def _add_stats_cudev(
 
 @cuda.jit(device=True, fastmath=True)
 def _get_z_cudev(
-    stat : _ErosionStateDataDtype,  # in
+    stat : ErosionStateDataDtype,  # in
 ) -> float32:
     """Get total height z from stat."""
     return stat['soil'] + stat['sedi'] + stat['aqua']
@@ -318,7 +317,7 @@ def _get_z_cudev(
 
 @cuda.jit(device=True, fastmath=True)
 def _get_h_cudev(
-    stat : _ErosionStateDataDtype,  # in
+    stat : ErosionStateDataDtype,  # in
 ) -> float32:
     """Get fluid height h from stat."""
     return stat['sedi'] + stat['aqua']
@@ -327,7 +326,7 @@ def _get_h_cudev(
 
 @cuda.jit(device=True, fastmath=True)
 def _get_m_cudev(
-    stat : _ErosionStateDataDtype,  # in
+    stat : ErosionStateDataDtype,  # in
     rho_sedi: float32,     # in
 ) -> float32:
     """Get mass per rhoS (in unit of water-equivalent height).
@@ -340,7 +339,7 @@ def _get_m_cudev(
 
 @cuda.jit(device=True, fastmath=True)
 def _get_p_cudev(
-    stat : _ErosionStateDataDtype,  # in
+    stat : ErosionStateDataDtype,  # in
 ) -> float32:
     """Get momentum per rhoS."""
     return math.sqrt(stat['p_x']**2 + stat['p_y']**2)
@@ -350,7 +349,7 @@ def _get_p_cudev(
 @cuda.jit(device=True, fastmath=True)
 def _get_v_cudev(
     # in
-    stat : _ErosionStateDataDtype,
+    stat : ErosionStateDataDtype,
     z_res: float32,
     rho_sedi: float32,
     v_cap: float32,
@@ -369,7 +368,7 @@ def _get_v_cudev(
 @cuda.jit(device=True, fastmath=True)
 def _get_rhoh2_cudev(
     # in
-    stat : _ErosionStateDataDtype,
+    stat : ErosionStateDataDtype,
     rho_sedi : float32,
 ) -> float32:
     """Get density times h^2. Useful for gravitational energy calculations.
@@ -385,13 +384,13 @@ def _get_rhoh2_cudev(
 @cuda.jit(device=True, fastmath=True)
 def _normalize_stat_cudev(
     # in/out
-    stat : _ErosionStateDataDtype,
+    stat : ErosionStateDataDtype,
     # in
-    edge : _ErosionStateDataDtype,
+    edge : ErosionStateDataDtype,
     z_max: float32,
     z_res: float32,
     rho_sedi: float32,
-) -> _ErosionStateDataDtype:
+) -> ErosionStateDataDtype:
     """Normalize stat var.
     
     return sedi to soil if all water evaporated etc.
@@ -582,7 +581,7 @@ def erode_rainfall_init_sub_cuda(
 @cuda.jit(device=True, fastmath=True)
 def _get_capa_cudev(
     # in
-    stat : _ErosionStateDataDtype,
+    stat : ErosionStateDataDtype,
     v0   : float32,
     slope: float32,
     v_cap: float32,
@@ -972,15 +971,15 @@ def _erode_rainfall_evolve_cuda_sub(
     # Note: the shared array 'shape' arg
     #    must take integer literals instead of integer
     stats_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=_ErosionStateDataDtype)
+        shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=ErosionStateDataDtype)
     edges_sarr = cuda.shared.array(
-        shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=_ErosionStateDataDtype)
+        shape=(CUDA_TPB_X, CUDA_TPB_Y), dtype=ErosionStateDataDtype)
 
     # 5 elems **for** this [i, j] location **from** adjacent locations:
     #    0:origin, 1:pp, 2:pm, 3:mp, 4:mm
     d_stats_sarr = cuda.shared.array(
         shape=(CUDA_TPB_X, CUDA_TPB_Y, N_ADJ_P1),
-        dtype=_ErosionStateDataDtype)
+        dtype=ErosionStateDataDtype)
 
     # # for disregarding edge
     # nan_stat_cuda = cuda.const.array_like(_NAN_STAT)
@@ -1192,7 +1191,7 @@ def erode_rainfall_evolve_cuda(
     # last dim has 2 elems, for i and j direction
     # assuming CUDA_TPB >= 2
     d_stats_cuda = cuda.to_device(np.zeros(
-        (nx, ny, 2), dtype=_ErosionStateDataDtype))
+        (nx, ny, 2), dtype=ErosionStateDataDtype))
     
     
     # - init pars -
