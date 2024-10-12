@@ -83,7 +83,7 @@ ADJ_OFFSETS : tuple = (
 N_ADJ_P1 : int = 5  # == len(ADJ_OFFSETS)
                     # must be odd number
 
-_NAN_STAT : npt.NDArray = np.full((1,), np.nan, dtype=ErosionStateDataDtype)
+_NAN_STATS : npt.NDArray = np.full((1,), np.nan, dtype=ErosionStateDataDtype)
 
 
 
@@ -359,9 +359,11 @@ def _get_v_cudev(
     ---------------------------------------------------------------------------
     """
     m = _get_m_cudev(stat, rho_sedi)
-    return min(
-        math.sqrt(stat['p_x']**2 + stat['p_y']**2 + 2 * m * stat['ekin']) / m,
-        v_cap) if m >= z_res else float32(0)
+    return min(max(
+        _signed_sqrt_cudev(
+            stat['p_x']**2 + stat['p_y']**2 + 2 * m * stat['ekin']) / m,
+        # limit result in between 0 and v_cap
+        0), v_cap) if m >= z_res else float32(0)
 
 
 
@@ -636,6 +638,9 @@ def _get_d_p_from_g_cudev(
     
     Used in _move_fluid_cudev().
 
+    note: the sign of grad_x, grad_y should encodes direction of the slope
+        rather than downward/upward. Upward should be capped at 0.
+
     ---------------------------------------------------------------------------
     """
     fac_k = d_h_k / h0    # move factor
@@ -663,16 +668,23 @@ def _get_d_p_from_g_cudev(
         # Summing up,
         #    with d_p2_from_g distributed on x/y axis according to the slope,
         # *** add more rows if ADJ_OFFSETS were expanded ***
+        # dd_p_?_k now store directions in form of +/-1
+        dd_p_x_k, dd_p_y_k = float32(1), float32(1)
         if   k == 1 or k == 2:
             grad2 = grad2_k + grad_y**2
             fac = (grad2_k/grad2) if grad2 else float32(1)
+            dd_p_x_k = _get_sign_cudev(ADJ_OFFSETS[k][0])
+            dd_p_y_k = _get_sign_cudev(grad_y)
         elif k == 3 or k == 4:
             grad2 = grad2_k + grad_x**2
+            # fac is about x, so do (1-*)
             fac = (1 - grad2_k/grad2) if grad2 else float32(1)
+            dd_p_x_k = _get_sign_cudev(grad_x)
+            dd_p_y_k = _get_sign_cudev(ADJ_OFFSETS[k][1])
             
-        # first add momentum from gravity
-        dd_p_x_k = _signed_sqrt_cudev(d_p2_from_g_pf2k  * fac)  * fac_k
-        dd_p_y_k = _signed_sqrt_cudev(d_p2_from_g_pf2k*(1-fac)) * fac_k
+        # add momentum from gravity
+        dd_p_x_k *= _signed_sqrt_cudev(d_p2_from_g_pf2k  * fac)  * fac_k
+        dd_p_y_k *= _signed_sqrt_cudev(d_p2_from_g_pf2k*(1-fac)) * fac_k
 
     return dd_p_x_k, dd_p_y_k, ek_from_g_k
 
@@ -760,7 +772,7 @@ def _move_fluid_cudev(
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
-        # d_h_p_k, d_h_g_k = float32(0), float32(0)    # dh from p and from g
+        d_h_p_k, d_h_g_k = float32(0), float32(0)    # dh from p and from g
         d_p_x_k, d_p_y_k = float32(0), float32(0)    # dp in x and y axis
         
         # --- step 3: momentum-based movements
@@ -789,9 +801,10 @@ def _move_fluid_cudev(
         # temporarily store d_p_x_k as dd_p_x_k
         dd_p_x_k += d_p_x_k; dd_p_y_k += d_p_y_k
         if d_h_k > 0 and (    # total energy for the moved part must >= 0
-            dd_p_x_k **2 + dd_p_y_k**2 + 2 * rho0 * d_h_k * ek_from_g_k < 0
+            # note: it's d_p_x_k, not dd_p_x_k,
+            #    because that part has already been counted in ek_from_g_k
+            d_p_x_k **2 + d_p_y_k**2 + 2 * rho0 * d_h_k * ek_from_g_k < 0
             ):
-            
             # reject momentum-based movement
             d_h_p_k = float32(0)
             # reflect momentum
@@ -804,7 +817,6 @@ def _move_fluid_cudev(
             dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
                 stats_sarr, ti, tj, k, stat, z0, h0, m0, p2_0,
                 d_h_k, grad_x, grad_y, lx, ly, g_eff)
-            
         # confirm adding momentum
         d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
                 
@@ -979,7 +991,7 @@ def _erode_rainfall_evolve_cuda_sub(
         dtype=ErosionStateDataDtype)
 
     # # for disregarding edge
-    # nan_stat_cuda = cuda.const.array_like(_NAN_STAT)
+    # nan_stat_cuda = cuda.const.array_like(_NAN_STATS)
     # edge_nan = nan_stat_cuda[0]
 
     
@@ -1025,21 +1037,22 @@ def _erode_rainfall_evolve_cuda_sub(
     cuda.syncthreads()
     
     # - turning -
+    # figuring out the local gradient (based on soil height)
+    sign_x = -1 if (_get_zfg_cudev(  stats_sarr[ti-1, tj])
+                    < _get_zfg_cudev(stats_sarr[ti+1, tj])) else 1
+    sign_y = -1 if (_get_zfg_cudev(  stats_sarr[ti, tj-1])
+                    < _get_zfg_cudev(stats_sarr[ti, tj+1])) else 1
+    # note: the sign of grad_x, grad_y encodes direction of the slope
+    #    rather than downward/upward. Upward is capped at 0.
+    grad_x = sign_x * max(
+        _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[ti+sign_x, tj]),
+        0) / lx
+    grad_y = sign_y * max(
+        _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[ti, tj+sign_y]),
+        0) / ly
     # turning v direction based on local gradient
     p0 = _get_p_cudev(stat)
     if p0:
-        # figuring out the local gradient (based on soil height)
-        sign_x = -1 if (_get_zfg_cudev(  stats_sarr[ti-1, tj])
-                        < _get_zfg_cudev(stats_sarr[ti+1, tj])) else 1
-        sign_y = -1 if (_get_zfg_cudev(  stats_sarr[ti, tj-1])
-                        < _get_zfg_cudev(stats_sarr[ti, tj+1])) else 1
-        grad_x = sign_x * max(
-            _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[ti+sign_x, tj]),
-            0) / lx
-        grad_y = sign_y * max(
-            _get_zfg_cudev(stat) - _get_zfg_cudev(stats_sarr[ti, tj+sign_y]),
-            0) / ly
-
         # set the scale of the gradient vector
         if turning_gradref:
             # re-align momentum based on turning
