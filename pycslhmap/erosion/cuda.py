@@ -619,7 +619,7 @@ def _get_d_p_from_g_cudev(
     oi0, z0, h0, m0, p2_0,
     d_h_k, grad_x, grad_y,
     lx, ly, g_eff,
-) -> tuple[float32, float32]:
+) -> tuple[float32, float32, float32]:
     """Calc momentum gain from proposed movement d_h_k.
     
     Used in _move_fluid_cudev().
@@ -627,6 +627,8 @@ def _get_d_p_from_g_cudev(
     ---------------------------------------------------------------------------
     """
     fac_k = d_h_k / h0    # move factor
+    dd_p_x_k, dd_p_y_k = float32(0), float32(0)
+    ek_from_g_k = float32(0)
     if fac_k > 0:    # only do things if movement are proposed
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
@@ -639,8 +641,9 @@ def _get_d_p_from_g_cudev(
         #        ek_from_g_k = m0 * g_eff * fac_k * (z0 - zk - d_h_k)
         #    divide both sides by (fac_k)**2 and we have
         #d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k) #, i.e.
-        d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k)
-        ek_from_g_k = d_p2_from_g_pf2k / (2 * m0) * fac_k if m0 else float32(0)
+        if m0:
+            d_p2_from_g_pf2k = 2 * m0**2 * g_eff * (z0 - zk - d_h_k)
+            ek_from_g_k = d_p2_from_g_pf2k / (2 * m0) * fac_k
         d_p2_k_pf2k = p2_0 + d_p2_from_g_pf2k
         grad2_k = (
             max(oi0 - stats_sarr[tki, tkj]['soil'], 0) / _get_l_cudev(
@@ -658,9 +661,6 @@ def _get_d_p_from_g_cudev(
         # first add momentum from gravity
         dd_p_x_k = _signed_sqrt_cudev(d_p2_from_g_pf2k  * fac)  * fac_k
         dd_p_y_k = _signed_sqrt_cudev(d_p2_from_g_pf2k*(1-fac)) * fac_k
-    else:
-        d_p2_from_g_pf2k = float32(0)
-        dd_p_x_k, dd_p_y_k = float32(0), float32(0)
 
     return dd_p_x_k, dd_p_y_k, ek_from_g_k
 
