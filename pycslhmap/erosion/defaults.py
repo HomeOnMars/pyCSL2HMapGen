@@ -91,7 +91,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'flow_eff': {
         '_TYPE': np.float32,
-        'value': np.float32(0.75),
+        'value': np.float32(0.625),  # 0.75
         '_DOC_': """Flow factor.
         .
             Should be in 0. <= flow_eff <= 1.
