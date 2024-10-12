@@ -386,7 +386,7 @@ def _get_zfg_cudev(
     stat : ErosionStateDataDtype,  # in
 ) -> float32:
     """Get height z' for gradient calc."""
-    return stat['soil'] + (stat['sedi'] + stat['aqua']) / 2
+    return stat['soil'] + stat['sedi'] + stat['aqua']
 
     
 
