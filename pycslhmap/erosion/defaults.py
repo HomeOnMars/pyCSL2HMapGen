@@ -102,14 +102,27 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             Changing this may drastically affect simulation results.
         .""",
     },
-    'turning': {
+    # 'turning': {
+    #     '_TYPE': np.float32,
+    #     'value': np.float32(1.0),
+    #     '_DOC_': """Turning efficiency.
+    #     .
+    #         Should be turning >= 0.
+    #         Controls how fast the water velocity conforms to local gradient.
+    #         1.0 means halfway, 0.0 means no turning effect, ~+inf means fullly confrom to local gradient.
+    #         Warning: dependent on pixel resolution.
+    #     .""",
+    # },
+    'turning_gradref': {
         '_TYPE': np.float32,
-        'value': np.float32(0.875),
-        '_DOC_': """Turning efficiency.
+        'value': np.float32(0.1),
+        '_DOC_': """Reference gradient for turning strength.
         .
-            Should be in 0. <= turning <= 1.
-            Controls how fast the water velocity conforms to local gradient.
-            Warning: dependent on pixel resolution.
+            Should be turning_gradref >= 0.
+            i.e. typical gradient that results in a typical turning.
+            if the local gradient is the same as this,
+                the velocity will be turned halfway in-between the original velocity and local gradient.
+            if 0, will reset the velocity direction to the local gradient direction.
         .""",
     },
     'rho_sedi': {

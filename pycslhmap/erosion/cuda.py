@@ -379,6 +379,42 @@ def _get_rhoh2_cudev(
     return (
         rho_sedi * stat['sedi'] + stat['aqua']) * (stat['sedi'] + stat['aqua'])
 
+
+
+@cuda.jit(device=True, fastmath=True)
+def _get_zfg_cudev(
+    stat : ErosionStateDataDtype,  # in
+) -> float32:
+    """Get height z' for gradient calc."""
+    return stat['soil'] + (stat['sedi'] + stat['aqua']) / 2
+
+
+
+@cuda.jit(device=True, fastmath=True)
+def _get_grad_xy_cudev(
+    # in
+    stats_sarr : ErosionStateDataType,
+    ti  : int,
+    tj  : int,
+    lx  : float32,
+    ly  : float32,
+) -> tuple[float32, float32]:
+    """Get local gradient in x and y direction for movement calc.
+
+    ---------------------------------------------------------------------------
+    """
+    sign_x = -1 if (_get_zfg_cudev(  stats_sarr[ti-1, tj])
+                    < _get_zfg_cudev(stats_sarr[ti+1, tj])) else 1
+    sign_y = -1 if (_get_zfg_cudev(  stats_sarr[ti, tj-1])
+                    < _get_zfg_cudev(stats_sarr[ti, tj+1])) else 1
+    grad_x = sign_x * max(
+        _get_zfg_cudev(stats_sarr[ti, tj]) - _get_zfg_cudev(stats_sarr[ti+sign_x, tj]),
+        0) / lx
+    grad_y = sign_y * max(
+        _get_zfg_cudev(stats_sarr[ti, tj]) - _get_zfg_cudev(stats_sarr[ti, tj+sign_y]),
+        0) / ly
+    return grad_x, grad_y
+
     
 
 @cuda.jit(device=True, fastmath=True)
@@ -666,10 +702,9 @@ def _move_fluid_cudev(
     ti, tj,
     not_at_outer_edge : bool_,
     z_res : float32,
-    lx    : float32,
-    ly    : float32,
+    lx    : float32, ly    : float32,
+    grad_x: float32, grad_y: float32,
     flow_eff  : float32,
-    turning   : float32,
     rho_sedi  : float32,
     v_cap     : float32,
     v_damping : float32,
@@ -702,7 +737,6 @@ def _move_fluid_cudev(
     
     stat = stats_sarr[ti, tj]
     z0, h0 = _get_z_cudev(stat), _get_h_cudev(stat)
-    # note: p_x, p_y could be updated and not necessarily the same as in stat
     p_x, p_y = stat['p_x'], stat['p_y']
 
     if not h0:    # stop if no water
@@ -721,27 +755,6 @@ def _move_fluid_cudev(
     # -- get d_hs_local (positive, == -d_hs_local[0])
     # no need to set k==0 elem
     d_h_tot = float32(0)
-    grad_x, grad_y = float32(0), float32(0)
-    if p2_0 and m0 > z_res:
-        # --- step 1: turning
-        # figuring out the local gradient (based on soil height)
-        sign_x = -1 if (
-            stats_sarr[ti-1, tj]['soil'] < stats_sarr[ti+1, tj]['soil']) else 1
-        sign_y = -1 if (
-            stats_sarr[ti, tj-1]['soil'] < stats_sarr[ti, tj+1]['soil']) else 1
-        grad_x = sign_x * max(oi0 - stats_sarr[ti+sign_x, tj]['soil'], 0) / lx
-        grad_y = sign_y * max(oi0 - stats_sarr[ti, tj+sign_y]['soil'], 0) / ly
-
-        # re-scale gradient vector to p
-        grad_fac = grad_x**2 + grad_y**2
-        grad_fac = math.sqrt(p2_0 / grad_fac) if grad_fac else float32(0)
-        
-        # re-align momentum based on turning
-        p_x = (1 - turning) * p_x + turning * (grad_x * grad_fac)
-        p_y = (1 - turning) * p_y + turning * (grad_y * grad_fac)
-        # update stat
-        stat['p_x'], stat['p_y'] = p_x, p_y
-        p2_0 = p_x**2 + p_y**2
         
     # --- step 2: init vars
     p0 = math.sqrt(p2_0)
@@ -939,7 +952,7 @@ def _erode_rainfall_evolve_cuda_sub(
     ly: float32,
     evapor_rate   : float32,
     flow_eff      : float32,
-    turning       : float32,
+    turning_gradref   : float32,
     rho_sedi : float32,
     v_cap         : float32,
     v_damping     : float32,
@@ -1021,8 +1034,38 @@ def _erode_rainfall_evolve_cuda_sub(
             stat['p_y'] *= v_damping_fac
         if not math.isnan(edge['ekin']) and stat['ekin'] > 0:
             stat['ekin'] *= v_damping_fac**2
-    # done
+            
+    # - normalize -
     stat = _normalize_stat_cudev(stat, edge, z_max, z_res, rho_sedi)
+
+    cuda.syncthreads()
+    
+    # - turning -
+    # turning v direction based on local gradient
+    p0 = _get_p_cudev(stat)
+    p_x, p_y = stat['p_x'], stat['p_y']
+    if p0:
+        # figuring out the local gradient (based on soil height)
+        grad_x, grad_y = _get_grad_xy_cudev(stats_sarr, ti, tj, lx, ly)
+
+        # set the scale of the gradient vector
+        if turning_gradref:
+            # re-align momentum based on turning
+            p_x += grad_x / turning_gradref * p0
+            p_y += grad_y / turning_gradref * p0
+        elif grad_x or grad_y:
+            # re-align only if there is local gradient guide
+            p_x, p_y = grad_x, grad_y
+        # renormalize p back to p0
+        fac = p0 / math.sqrt(p_x**2 + p_y**2)    # p0 / p_new
+        if math.isfinite(fac):
+            p_x *= fac
+            p_y *= fac
+
+        # update stat
+        stat['p_x'], stat['p_y'] = p_x, p_y
+
+    # write results (just in case)
     stats_sarr[ti, tj] = stat
 
     cuda.syncthreads()
@@ -1032,8 +1075,8 @@ def _erode_rainfall_evolve_cuda_sub(
         # out
         d_stats_sarr,
         # in
-        stats_sarr, ti, tj, not_at_outer_edge, z_res, lx, ly,
-        flow_eff, turning, rho_sedi, v_cap, v_damping, g_eff,
+        stats_sarr, ti, tj, not_at_outer_edge, z_res, lx, ly, grad_x, grad_y,
+        flow_eff, rho_sedi, v_cap, v_damping, g_eff,
         erosion_eff, erosion_brush, capa_fac, capa_fac_v,
         capa_fac_slope, capa_fac_slope_cap,
     )
@@ -1234,7 +1277,7 @@ def erode_rainfall_evolve_cuda(
                 i_layer_read, z_max, z_res, lx, ly,
                 pars_v['evapor_rate'],
                 pars_v['flow_eff'],
-                pars_v['turning'],
+                pars_v['turning_gradref'],
                 pars_v['rho_sedi'],
                 pars_v['v_cap'],
                 pars_v['v_damping'],
