@@ -366,6 +366,18 @@ def _get_v_cudev(
 
 
 @cuda.jit(device=True, fastmath=True)
+def _get_rho_cudev(
+    # in
+    stat : ErosionStateDataDtype,
+    rho_sedi : float32,
+) -> float32:
+    """Get density."""
+    return (
+        rho_sedi * stat['sedi'] + stat['aqua']) / (stat['sedi'] + stat['aqua'])
+
+
+
+@cuda.jit(device=True, fastmath=True)
 def _get_rhoh2_cudev(
     # in
     stat : ErosionStateDataDtype,
@@ -720,7 +732,7 @@ def _move_fluid_cudev(
     #--------------------------------------------------------------------------
 
     # init temp vars
-    oi0 = stat['soil']
+    rho0 = _get_rho_cudev(stat, rho_sedi)
     m0 = _get_m_cudev(stat, rho_sedi)
     p2_0 = p_x**2 + p_y**2    # momentum squared
 
@@ -734,11 +746,11 @@ def _move_fluid_cudev(
     d_h_tot = float32(0)
     p0 = math.sqrt(p2_0)
     v0_capped = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
-    # h0_p_tot & h0_g_k: fraction of the h0 reserved for momentum- & gravity- based
-    #    movement per adjacent cell
+    # h0_p_tot & h0_g_k: fraction of the h0 reserved
+    #    for momentum- & gravity- based movement per adjacent cell
     # Warning: h0_p_tot + h0_g_k * (N_ADJ_P1-1) < h0 if v0 < v_cap!
-    #    some are reserved to stay
-    h0_p_tot = h0 * (float32(1) - flow_eff) * (v0_capped / v_cap)  # all will be gone
+    # However, all h0_p_tot will be gone
+    h0_p_tot = h0 * (float32(1) - flow_eff) * (v0_capped / v_cap)
     # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
     #    the rest may stay too based on terrain
     h0_g_k = h0 * flow_eff / float32(N_ADJ_P1-1)
@@ -776,12 +788,8 @@ def _move_fluid_cudev(
             d_h_k, grad_x, grad_y, lx, ly, g_eff)
         # temporarily store d_p_x_k as dd_p_x_k
         dd_p_x_k += d_p_x_k; dd_p_y_k += d_p_y_k
-        if d_h_k > 0 and ek_from_g_k < 0 and (
-            # *** add more rows if ADJ_OFFSETS were expanded ***
-            (   k == 1 and dd_p_x_k > 0)
-            or (k == 2 and dd_p_x_k < 0)
-            or (k == 3 and dd_p_y_k > 0)
-            or (k == 4 and dd_p_y_k < 0)
+        if d_h_k > 0 and (    # total energy for the moved part must >= 0
+            dd_p_x_k **2 + dd_p_y_k**2 + 2 * rho0 * d_h_k * ek_from_g_k < 0
             ):
             
             # reject momentum-based movement
@@ -796,10 +804,9 @@ def _move_fluid_cudev(
             dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
                 stats_sarr, ti, tj, k, stat, z0, h0, m0, p2_0,
                 d_h_k, grad_x, grad_y, lx, ly, g_eff)
-            d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
-        else:
-            # confirm adding momentum
-            d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
+            
+        # confirm adding momentum
+        d_p_x_k = dd_p_x_k; d_p_y_k = dd_p_y_k
                 
         # now subtract the energy debt
         if d_p2_from_ek_pf2k:
@@ -868,8 +875,9 @@ def _move_fluid_cudev(
             for k in range(1, N_ADJ_P1):
                 tki, tkj = _get_tkij_cudev(ti, tj, k)
                 d_h_k = d_hs_local[k]
-                oik = stats_sarr[tki, tkj]['soil']
-                slope += d_h_k * (oi0 - oik) / _get_l_cudev(k, lx, ly)
+                slope += d_h_k * (
+                    stat['soil'] - stats_sarr[tki, tkj]['soil']
+                ) / _get_l_cudev(k, lx, ly)
             slope /= d_h_tot
         # get capa
         capa = _get_capa_cudev(
