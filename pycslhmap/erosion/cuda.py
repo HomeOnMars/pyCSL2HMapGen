@@ -591,7 +591,7 @@ def erode_rainfall_init_sub_cuda(
 def _get_capa_cudev(
     # in
     stat : ErosionStateDataDtype,
-    v0   : float32,
+    v0_capped: float32,
     slope: float32,
     v_cap: float32,
     capa_fac: float32,
@@ -601,7 +601,7 @@ def _get_capa_cudev(
 ) -> float32:
     capa = capa_fac * stat['aqua'] * (
         # speed-based multiplier
-        (capa_fac_v*v_cap + v0) / ((1+capa_fac_v)*v_cap)
+        (capa_fac_v*v_cap + v0_capped) / ((1+capa_fac_v)*v_cap)
     ) * max(
         (    # slope-based multiplier
             capa_fac_slope*capa_fac_slope_cap + min(slope, capa_fac_slope_cap)
@@ -726,15 +726,19 @@ def _move_fluid_cudev(
 
 
     # -- get d_hs_local (positive, == -d_hs_local[0])
-    # no need to set k==0 elem
-    d_h_tot = float32(0)
+
+    # --- step 1: turning
+    #    Done in _erode_rainfall_evolve_cuda_sub() before
         
     # --- step 2: init vars
+    d_h_tot = float32(0)
     p0 = math.sqrt(p2_0)
-    v0 = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
-    # h0_p_k & h0_g_k: fraction of the h0 reserved for momentum- & gravity- based
+    v0_capped = _get_v_cudev(stat, z_res, rho_sedi, v_cap)
+    # h0_p_tot & h0_g_k: fraction of the h0 reserved for momentum- & gravity- based
     #    movement per adjacent cell
-    h0_p_k = h0 * (float32(1) - flow_eff) * (v0 / v_cap)  # all will be gone
+    # Warning: h0_p_tot + h0_g_k * (N_ADJ_P1-1) < h0 if v0 < v_cap!
+    #    some are reserved to stay
+    h0_p_tot = h0 * (float32(1) - flow_eff) * (v0_capped / v_cap)  # all will be gone
     # note for h0_g_k: at least 1/N_ADJ_P1 part of it is reserved to stay
     #    the rest may stay too based on terrain
     h0_g_k = h0 * flow_eff / float32(N_ADJ_P1-1)
@@ -744,16 +748,15 @@ def _move_fluid_cudev(
     for k in range(1, N_ADJ_P1):
         tki, tkj = _get_tkij_cudev(ti, tj, k)
         zk = _get_z_cudev(stats_sarr[tki, tkj])
-        # d_h_k = float32(0)
         # d_h_p_k, d_h_g_k = float32(0), float32(0)    # dh from p and from g
         d_p_x_k, d_p_y_k = float32(0), float32(0)    # dp in x and y axis
         
         # --- step 3: momentum-based movements
-        if p2_0 and h0_p_k:
+        if p2_0 and h0_p_tot:
             if   (k == 1 and p_x < 0) or (k == 2 and p_x > 0):
-                d_h_p_k = (p_x**2/p2_0) * h0_p_k
+                d_h_p_k = (p_x**2/p2_0) * h0_p_tot
             elif (k == 3 and p_y < 0) or (k == 4 and p_y > 0):
-                d_h_p_k = (p_y**2/p2_0) * h0_p_k
+                d_h_p_k = (p_y**2/p2_0) * h0_p_tot
             else:
                 d_h_p_k = float32(0)
             if d_h_p_k:    # set momentum transfer
@@ -870,7 +873,7 @@ def _move_fluid_cudev(
             slope /= d_h_tot
         # get capa
         capa = _get_capa_cudev(
-            stat, v0, slope, v_cap,
+            stat, v0_capped, slope, v_cap,
             capa_fac, capa_fac_v, capa_fac_slope, capa_fac_slope_cap)
         # do erosion / deposition
         if capa > stat['sedi']:    # erode
@@ -1016,7 +1019,6 @@ def _erode_rainfall_evolve_cuda_sub(
     # - turning -
     # turning v direction based on local gradient
     p0 = _get_p_cudev(stat)
-    p_x, p_y = stat['p_x'], stat['p_y']
     if p0:
         # figuring out the local gradient (based on soil height)
         sign_x = -1 if (_get_zfg_cudev(  stats_sarr[ti-1, tj])
@@ -1033,19 +1035,16 @@ def _erode_rainfall_evolve_cuda_sub(
         # set the scale of the gradient vector
         if turning_gradref:
             # re-align momentum based on turning
-            p_x += grad_x / turning_gradref * p0
-            p_y += grad_y / turning_gradref * p0
+            stat['p_x'] += grad_x / turning_gradref * p0
+            stat['p_y'] += grad_y / turning_gradref * p0
         elif grad_x or grad_y:
             # re-align only if there is local gradient guide
-            p_x, p_y = grad_x, grad_y
+            stat['p_x'], stat['p_y'] = grad_x, grad_y
         # renormalize p back to p0
-        fac = p0 / math.sqrt(p_x**2 + p_y**2)    # p0 / p_new
+        fac = p0 / math.sqrt(stat['p_x']**2 + stat['p_y']**2)    # p0 / p_new
         if math.isfinite(fac):
-            p_x *= fac
-            p_y *= fac
-
-        # update stat
-        stat['p_x'], stat['p_y'] = p_x, p_y
+            stat['p_x'] *= fac
+            stat['p_y'] *= fac
 
     # write results (just in case)
     stats_sarr[ti, tj] = stat
