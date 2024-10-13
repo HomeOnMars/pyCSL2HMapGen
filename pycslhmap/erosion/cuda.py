@@ -613,15 +613,22 @@ def _get_capa_cudev(
     capa_fac_slope: float32,
     capa_fac_slope_cap: float32,
 ) -> float32:
-    capa = capa_fac * stat['aqua'] * (
-        # speed-based multiplier
-        (capa_fac_v*v_cap + v0_capped) / ((1+capa_fac_v)*v_cap)
-    ) * max(
-        (    # slope-based multiplier
-            capa_fac_slope*capa_fac_slope_cap + min(slope, capa_fac_slope_cap)
-        ) / ((1+capa_fac_slope)*capa_fac_slope_cap),
-        float32(0),  # prevent capa going negative
-    )
+    """Get sediment capacity.
+
+    Assumes 0 < v0_capped < v_cap
+        And 0 < slope < capa_fac_slope_cap
+
+    ---------------------------------------------------------------------------
+    """
+    capa = capa_fac * stat['aqua']
+    if capa_fac_v:     # speed-based multiplier
+        capa *= (v_cap + capa_fac_v*v0_capped) / ((1+capa_fac_v)*v_cap)
+    if capa_fac_slope: # slope-based multiplier
+        capa *= max(
+            (capa_fac_slope_cap + capa_fac_slope*slope
+             ) / ((1+capa_fac_slope)*capa_fac_slope_cap),
+            float32(0),  # prevent capa going negative
+        )
     return capa
 
 
@@ -879,18 +886,19 @@ def _move_fluid_cudev(
     # - erode -
     #--------------------------------------------------------------------------
     if erosion_eff:    # h0 > 0 must be True from before
+        # note: upward slopes are ignored
+        slope = min(math.sqrt(grad_x**2 + grad_y**2), capa_fac_slope_cap)
         # get slope (of the soil surface instead of fluid surface)
-        slope = float32(0)
-        if d_h_tot:
-            # averaging slope, weighted by movement
-            # note: slope can be negative
-            for k in range(1, N_ADJ_P1):
-                tki, tkj = _get_tkij_cudev(ti, tj, k)
-                d_h_k = d_hs_local[k]
-                slope += d_h_k * (
-                    stat['soil'] - stats_sarr[tki, tkj]['soil']
-                ) / _get_l_cudev(k, lx, ly)
-            slope /= d_h_tot
+        # if d_h_tot:
+        #     # averaging slope, weighted by movement
+        #     # note: slope can be negative
+        #     for k in range(1, N_ADJ_P1):
+        #         tki, tkj = _get_tkij_cudev(ti, tj, k)
+        #         d_h_k = d_hs_local[k]
+        #         slope += d_h_k * (
+        #             stat['soil'] - stats_sarr[tki, tkj]['soil']
+        #         ) / _get_l_cudev(k, lx, ly)
+        #     slope /= d_h_tot
         # get capa
         capa = _get_capa_cudev(
             stat, v0_capped, slope, v_cap,

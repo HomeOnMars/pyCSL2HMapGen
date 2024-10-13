@@ -201,13 +201,13 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(1.0),
         '_DOC_': """Another sediment capacity factor, this time for water velocity.
         .
-            Must: capa_fac_v >= 0
+            Must: capa_fac_v > -1
             Dimensionless.
-                The fastest water can carry (1+capa_fac_v)/capa_fac_v as much sediments as still water.
+                The fastest water can carry (1+capa_fac_v) as much sediments as still water.
                 e.g.:
-                1   means the fastest water can carry twice as much sedi as still water;
-                10  means the fastest water can carry 11/10 as much sedi as still water.
-                0.5 means the fastest water can carry 1.5/0.5 = 3x as much sedi as still water.
+                -0.5 means the fastest water can carry half as much sedi as still water;
+                0    means water velocity have no effect on sediment capacity;
+                1    means the fastest water can carry twice as much sedi as still water.
         .""",
     },
     'capa_fac_slope': {
@@ -215,11 +215,14 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
         'value': np.float32(1.0),
         '_DOC_': """Another sediment capacity factor, this time for slope.
         .
-            Must: capa_fac_slope >= 0
+            Must: capa_fac_slope > -1
             Dimensionless.
-                The steepest water can carry (1+capa_fac_slope)/capa_fac_slope as much sediments as water on leveled terrain.
+                The steepest water can carry (1+capa_fac_slope) as much sediments as water with leveled water surface.
                 e.g.:
-                (TBD)
+                e.g.:
+                -0.5 means the steepest water can carry half as much sedi as leveled water;
+                0    means the slope have no effect on sediment capacity;
+                1    means the steepest water can carry twice as much sedi as leveled water.
         .""",
     },
     'capa_fac_slope_cap': {

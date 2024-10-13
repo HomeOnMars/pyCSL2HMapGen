@@ -534,13 +534,9 @@ class ErosionState(HMap):
         capa_fac = self.get_par('capa_fac')
         capa_fac_v = self.get_par('capa_fac_v')
         capa_fac_slope = self.get_par('capa_fac_slope')
-        capa_fac = capa_fac * (
-            capa_fac_v / (1+capa_fac_v)
-        ) * (
-            capa_fac_slope / (1+capa_fac_slope)
-        )
-        self.stats['aqua'] = hs / (1.+capa_fac)
-        self.stats['sedi'] = hs * capa_fac/(1.+capa_fac)
+        fac = capa_fac / (1+capa_fac_v)/ (1+capa_fac_slope)
+        self.stats['aqua'] = hs / (1+fac)
+        self.stats['sedi'] = hs * fac/(1+fac)
         # speed is zero, so
         self.stats['p_x' ] = 0.
         self.stats['p_y' ] = 0.
