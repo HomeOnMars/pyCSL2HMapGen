@@ -814,11 +814,11 @@ def _move_fluid_cudev(
             ):
             # reject momentum-based movement
             d_h_p_k = float32(0)
-            # reflect momentum
+            # cancel out momentum
             if k == 1 or k == 2:
-                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k*2
+                d_stats_sarr[ti, tj, 0]['p_x'] -= d_p_x_k #*2
             else:
-                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k*2
+                d_stats_sarr[ti, tj, 0]['p_y'] -= d_p_y_k #*2
             # re-calculate
             d_h_k = d_h_p_k + d_h_g_k
             dd_p_x_k, dd_p_y_k, ek_from_g_k = _get_d_p_from_g_cudev(
