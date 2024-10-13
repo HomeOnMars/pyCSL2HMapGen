@@ -102,17 +102,6 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
             Changing this may drastically affect simulation results.
         .""",
     },
-    # 'turning': {
-    #     '_TYPE': np.float32,
-    #     'value': np.float32(1.0),
-    #     '_DOC_': """Turning efficiency.
-    #     .
-    #         Should be turning >= 0.
-    #         Controls how fast the water velocity conforms to local gradient.
-    #         1.0 means halfway, 0.0 means no turning effect, ~+inf means fullly confrom to local gradient.
-    #         Warning: dependent on pixel resolution.
-    #     .""",
-    # },
     'turning_gradref': {
         '_TYPE': np.float32,
         'value': np.float32(0.1),
@@ -147,7 +136,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'v_damping': {
         '_TYPE': np.float32,
-        'value': np.float32(2**(-10)),
+        'value': np.float32(2**(-3)),
         '_DOC_': """Damping factor for momentums per step.
         .
             Must: 0. <= v_damping <= 1.
@@ -169,7 +158,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     #--------------------------------------------------------------------------
     'erosion_eff': {
         '_TYPE': np.float32,
-        'value': np.float32(0.25),
+        'value': np.float32(2**(-3)),
         '_DOC_': """Overall Erosion/deposition efficiency.
         .
             Should be 0. <= erosion_eff <= 1.
@@ -178,7 +167,7 @@ DEFAULT_PARS : dict[str, dict[str, type|ParsValueType|str]] = {
     },
     'erosion_brush': {
         '_TYPE': npt.NDArray[np.float32],
-        'value': np.array([0.5, 0.125, 0.125, 0.125, 0.125], dtype=np.float32),
+        'value': np.array([0.375, 0.15625, 0.15625, 0.15625, 0.15625], dtype=np.float32),
         '_DOC_': """How much to be eroded for the cell and its adjacent cells.
         .
             Should have exactly 5 elements. Each 0. <= erosion_brush[i] <= 1.
