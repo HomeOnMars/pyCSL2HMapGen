@@ -390,7 +390,7 @@ class CSL2HMap(HMap):
         hmap.data -= before_hmap.data
         hmap.z_max -= before_hmap.z_min
         hmap.z_min -= before_hmap.z_max
-        hmap.z_sea = 0
+        hmap.z_sea -= before_hmap.z_sea
         diff = hmap.extract_playable(**kwargs)
         self.data += diff.data
         return self
