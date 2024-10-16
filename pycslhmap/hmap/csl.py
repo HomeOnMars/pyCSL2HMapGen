@@ -374,8 +374,28 @@ class CSL2HMap(HMap):
         ] = res.data
         
         return ans
+
+
+
+    def update_diff(
+        self,
+        after_hmap: Self,
+        before_hmap: Self,
+        **kwargs) -> Self:
+        """Do differential update of playable area from 2 worldmap."""
+
+        assert after_hmap.map_type == before_hmap.map_type
         
-    
+        hmap = after_hmap.copy()
+        hmap.data -= before_hmap.data
+        hmap.z_max -= before_hmap.z_min
+        hmap.z_min -= before_hmap.z_max
+        hmap.z_sea = 0
+        diff = hmap.extract_playable(**kwargs)
+        self.data += diff.data
+        return self
+
+
 
 #-----------------------------------------------------------------------------#
 #    End
