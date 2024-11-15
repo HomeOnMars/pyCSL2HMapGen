@@ -18,7 +18,7 @@ See the `Example*.ipynb` jupyter notebooks for a quick guide.
 - Resample & rescale height maps
 - Extract & Re-insert playable area from world map for CSL2 height maps    (See `Example2_*.ipynb`)
 - ~~(Experimental / Work In Progress) Erosion (require CUDA, i.e., require `cuda-nvcc cuda-nvrtc` and cuda-compatible GPU (most modern NVIDIA GPUs are))~~
-  Warning: `Erosion` module has been postponed indefinitely. *Do not use*.
+  Warning: development of the `Erosion` module has been postponed indefinitely. *Do not use*.
 
 
 ## Dependencies
