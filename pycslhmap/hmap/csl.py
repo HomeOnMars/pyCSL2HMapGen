@@ -335,7 +335,10 @@ class CSL2HMap(HMap):
         """Extract playable area from world map."""
 
         # safety check
-        assert self._map_type == 'worldmap'
+        if self._map_type != 'worldmap':
+            print(
+                "Warning: this is not a worldmap.",
+                "Are you sure you know what you are doing?")
 
         ans = self.resample(
             nslim_in_ind=(3*self.npix_8, 5*self.npix_8),
@@ -360,7 +363,10 @@ class CSL2HMap(HMap):
         """
         
         # safety check
-        assert self._map_type == 'worldmap'
+        if self._map_type != 'worldmap':
+            print(
+                "Warning: this is not a worldmap.",
+                "Are you sure you know what you are doing?")
 
         res = playable_hmap.resample(
             new_npix_xy=(self.npix_4, self.npix_4),
@@ -384,7 +390,10 @@ class CSL2HMap(HMap):
         **kwargs) -> Self:
         """Do differential update of playable area from 2 worldmap."""
 
-        assert after_hmap.map_type == before_hmap.map_type
+        if after_hmap.map_type != before_hmap.map_type:
+            print(
+                "Warning: after_hmap is not of the same map type as before_hmap.",
+                "Are you sure you know what you are doing?")
         
         hmap = after_hmap.copy()
         hmap.data -= before_hmap.data
